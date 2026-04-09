@@ -8,7 +8,9 @@
     "rebuild": "electron-rebuild -f -w serialport",
     "make-icon": "node scripts/make-icon.js",
     "build-win": "npm run make-icon && electron-builder --win",
-    "build-mac": "npm run make-icon && electron-builder --mac"
+    "build-mac": "npm run make-icon && electron-builder --mac",
+    "release": "node scripts/release.js",
+    "release:dry": "node scripts/release.js --dry-run"
   },
   "dependencies": {
     "@serialport/parser-readline": "^12.0.0",
