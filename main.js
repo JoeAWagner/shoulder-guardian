@@ -24,6 +24,7 @@ let triggerAction   = 'minimize';  // 'minimize' | 'lock'
 let closeToTray     = true;        // false = quit on window close
 let threatFrames    = 0;      // consecutive frames with count >= 2
 let threatThreshold = 4;      // frames needed before triggering (user-configurable)
+let lastTargetCount = -1;     // tracks count changes for target appear/disappear logging
 
 // ── File logger ───────────────────────────────────────────────
 let logFilePath = null;
@@ -219,6 +220,17 @@ ipcMain.handle('connect', async (event, portPath) => {
 
       const status = parseStatus(line);
 
+      // ── Log new/lost targets ──────────────────────────────
+      if (status.count !== lastTargetCount) {
+        const diff = status.count - lastTargetCount;
+        const msg  = diff > 0
+          ? `[${ts()}] Target detected — ${status.count} in view`
+          : `[${ts()}] Target lost — ${status.count} in view`;
+        mainWindow.webContents.send('log', msg);
+        logToFile(msg);
+        lastTargetCount = status.count;
+      }
+
       // Sync app-side state from Arduino settings
       cooldownMs  = (status.cool  || 5)  * 1000;
       lockDelayMs = (status.lockdly || 30) * 1000;
@@ -358,8 +370,9 @@ function parseStatus(line) {
 }
 
 function resetLockState() {
-  emptyStart = null;
-  lockFired  = false;
+  emptyStart      = null;
+  lockFired       = false;
+  lastTargetCount = -1;
 }
 
 function ts() { return new Date().toLocaleTimeString(); }
