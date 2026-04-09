@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Shoulder Surfer — Preview</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .titlebar { -webkit-app-region: none; }
+    .win-btn  { pointer-events: none; opacity: 0.4; }
+    body      { overflow: auto; }
+    .app      { height: auto; overflow: visible; }
+  </style>
+</head>
+<body>
+
+  <div class="titlebar">
+    <div class="titlebar-left">
+      <div class="tb-icon">⊙</div>
+      <span class="tb-title">Shoulder Surfer</span>
+    </div>
+    <div class="titlebar-right">
+      <button class="win-btn">&#x2212;</button>
+      <button class="win-btn close-btn">&#x2715;</button>
+    </div>
+  </div>
+
+  <div class="app">
+    <div class="conn-strip">
+      <div class="conn-badge">
+        <span class="badge-dot on"></span>
+        <span>Connected</span>
+      </div>
+      <select><option>COM3</option></select>
+      <button>↻</button>
+      <button>Disconnect</button>
+      <div class="strip-sep"></div>
+      <label class="pill-label">
+        <label class="pill-toggle">
+          <input type="checkbox" checked>
+          <span class="pill-track"><span class="pill-thumb"></span></span>
+        </label>
+        <span>ON</span>
+      </label>
+    </div>
+
+    <div class="radar-card" id="radarCard">
+      <canvas id="radarCanvas" width="444" height="220"></canvas>
+      <div class="radar-status-row">
+        <div class="target-count-badge" id="countBadge">0 targets</div>
+        <div class="status-badge empty" id="statusBadge">EMPTY</div>
+        <div class="lock-countdown" id="lockCountdown"></div>
+      </div>
+      <div class="target-list" id="targetList"></div>
+    </div>
+
+    <div class="settings-card">
+      <div class="settings-header">
+        <span class="settings-title">Settings</span>
+        <button>Apply</button>
+      </div>
+
+      <!-- Row 0: Threat action -->
+      <div class="settings-row">
+        <div class="slider-group" style="flex:1">
+          <div class="slider-labels"><span>On Threat Detected</span></div>
+          <div class="segment-control">
+            <button class="seg-btn active" id="actionMinimize">Show Desktop</button>
+            <button class="seg-btn" id="actionLock">Lock Screen</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 1: Lock toggle + lock delay -->
+      <div class="settings-row">
+        <div class="setting-toggle-group">
+          <label class="pill-toggle">
+            <input type="checkbox" checked>
+            <span class="pill-track"><span class="pill-thumb"></span></span>
+          </label>
+          <div class="toggle-info">
+            <span class="toggle-label">Lock on empty</span>
+            <span class="toggle-hint">Lock screen when nobody detected</span>
+          </div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-labels">
+            <span>Lock Delay</span>
+            <span class="slider-val">30 s</span>
+          </div>
+          <input type="range" min="5" max="120" step="5" value="30">
+        </div>
+      </div>
+
+      <!-- Row 2: Cooldown + Max depth -->
+      <div class="settings-row">
+        <div class="slider-group">
+          <div class="slider-labels">
+            <span>Cooldown</span>
+            <span class="slider-val">5 s</span>
+          </div>
+          <input type="range" min="1" max="60" value="5">
+          <div class="slider-hint">Min time between triggers</div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-labels">
+            <span>Max Depth</span>
+            <span class="slider-val">2.0 m</span>
+          </div>
+          <input type="range" min="500" max="5000" step="100" value="2000">
+          <div class="slider-hint">Ignore targets beyond this distance</div>
+        </div>
+      </div>
+
+      <!-- Row 3: Detection width -->
+      <div class="settings-row">
+        <div class="slider-group" style="flex:1">
+          <div class="slider-labels">
+            <span>Detection Width</span>
+            <span class="slider-val" id="maxXVal">±1.0 m</span>
+          </div>
+          <input type="range" id="maxXSlider" min="200" max="3000" step="100" value="1000">
+          <div class="slider-hint">Ignore targets outside this lateral range (shown on radar)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="log-card">
+      <div class="log-bar">
+        <span class="log-title">Activity</span>
+        <button>Clear</button>
+      </div>
+      <div id="logBox">
+        <div class="log-ok">[12:34:01] Connected to COM3</div>
+        <div class="log-info">[12:34:02] Protection enabled</div>
+        <div class="log-trigger">[12:35:14] TRIGGERED — 2 targets detected</div>
+        <div class="log-warn">[12:36:00] Screen locked — no presence for 30s</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas      = document.getElementById('radarCanvas');
+    const ctx         = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const SENSOR_X    = W / 2;
+    const SENSOR_Y    = H - 8;
+    const PLOT_R      = Math.min(W/2 - 4, H - 14);
+    const TARGET_COLORS = ['#3fb950','#f85149','#d29922'];
+
+    const countBadge    = document.getElementById('countBadge');
+    const statusBadge   = document.getElementById('statusBadge');
+    const lockCountdown = document.getElementById('lockCountdown');
+    const targetList    = document.getElementById('targetList');
+    const radarCard     = document.getElementById('radarCard');
+    const maxXSlider    = document.getElementById('maxXSlider');
+    const maxXVal       = document.getElementById('maxXVal');
+
+    // Segment control demo interaction
+    document.getElementById('actionMinimize').addEventListener('click', function() {
+      this.classList.add('active');
+      document.getElementById('actionLock').classList.remove('active');
+    });
+    document.getElementById('actionLock').addEventListener('click', function() {
+      this.classList.add('active');
+      document.getElementById('actionMinimize').classList.remove('active');
+    });
+
+    // Detection width slider live update
+    maxXSlider.addEventListener('input', () => {
+      maxXVal.textContent = '±' + (maxXSlider.value / 1000).toFixed(1) + ' m';
+      drawRadar(currentTargets, MAX, Number(maxXSlider.value));
+    });
+
+    function drawRadar(targets, maxRangeMm, maxXMm = 1000) {
+      ctx.clearRect(0,0,W,H);
+      ctx.fillStyle = '#010409';
+      ctx.fillRect(0,0,W,H);
+
+      // Range arcs
+      [0.25, 0.5, 0.75, 1.0].forEach(frac => {
+        const r = PLOT_R * frac;
+        ctx.beginPath();
+        ctx.arc(SENSOR_X, SENSOR_Y, r, Math.PI, 2*Math.PI);
+        ctx.strokeStyle = frac === 1.0 ? '#2d333b' : '#21262d';
+        ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = '#484f58'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+        ctx.fillText(((maxRangeMm * frac)/1000).toFixed(1)+'m', SENSOR_X+4, SENSOR_Y - r + 11);
+      });
+
+      // FOV lines
+      ctx.strokeStyle = '#21262d'; ctx.lineWidth = 1; ctx.setLineDash([3,4]);
+      [Math.PI + Math.PI/3, 2*Math.PI - Math.PI/3].forEach(a => {
+        ctx.beginPath();
+        ctx.moveTo(SENSOR_X, SENSOR_Y);
+        ctx.lineTo(SENSOR_X + Math.cos(a)*PLOT_R, SENSOR_Y + Math.sin(a)*PLOT_R);
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+
+      // Center line
+      ctx.beginPath(); ctx.moveTo(SENSOR_X, SENSOR_Y); ctx.lineTo(SENSOR_X, SENSOR_Y-PLOT_R);
+      ctx.strokeStyle = '#2d333b'; ctx.lineWidth = 1; ctx.stroke();
+
+      // Detection width limit lines
+      const xLimitPx = Math.min((maxXMm / maxRangeMm) * (W/2 - 4), W/2 - 4);
+      ctx.setLineDash([4,3]);
+      ctx.strokeStyle = '#58a6ff44';
+      ctx.lineWidth = 1;
+      [-xLimitPx, xLimitPx].forEach(dx => {
+        ctx.beginPath();
+        ctx.moveTo(SENSOR_X + dx, SENSOR_Y);
+        ctx.lineTo(SENSOR_X + dx, 0);
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+
+      // Sensor dot
+      ctx.beginPath(); ctx.arc(SENSOR_X, SENSOR_Y, 4, 0, 2*Math.PI);
+      ctx.fillStyle = '#58a6ff'; ctx.shadowBlur = 8; ctx.shadowColor = '#58a6ff';
+      ctx.fill(); ctx.shadowBlur = 0;
+
+      // Targets
+      targets.forEach((t, i) => {
+        const px = SENSOR_X + (t.x / maxRangeMm) * (W/2 - 4);
+        const py = SENSOR_Y - (t.y / maxRangeMm) * PLOT_R;
+        const color = TARGET_COLORS[i] || TARGET_COLORS[2];
+        const g = ctx.createRadialGradient(px,py,0,px,py,18);
+        g.addColorStop(0, color+'aa'); g.addColorStop(1, color+'00');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(px,py,18,0,2*Math.PI); ctx.fill();
+        ctx.beginPath(); ctx.arc(px,py,6,0,2*Math.PI);
+        ctx.fillStyle = color; ctx.shadowBlur = 10; ctx.shadowColor = color;
+        ctx.fill(); ctx.shadowBlur = 0;
+      });
+    }
+
+    function updateUI(targets) {
+      const count = targets.length;
+      countBadge.textContent = count + ' target' + (count !== 1 ? 's' : '');
+      targetList.innerHTML = '';
+      targets.forEach((t, i) => {
+        const dist = (t.y/1000).toFixed(2);
+        const side = t.x === 0 ? 'center' : t.x < 0
+          ? `${(Math.abs(t.x)/10).toFixed(0)}cm left`
+          : `${(t.x/10).toFixed(0)}cm right`;
+        const d = document.createElement('div');
+        d.className = 'target-row';
+        d.innerHTML = `<span class="target-dot t${i}"></span> T${i+1}: ${dist}m · ${side}`;
+        targetList.appendChild(d);
+      });
+      if      (count === 0) { statusBadge.textContent = 'WATCHING'; statusBadge.className = 'status-badge empty'; }
+      else if (count === 1) { statusBadge.textContent = 'SAFE';     statusBadge.className = 'status-badge safe'; }
+      else                  { statusBadge.textContent = 'THREAT';   statusBadge.className = 'status-badge threat'; }
+    }
+
+    // ── Demo sequence ─────────────────────────────────────────
+    const MAX = 2000;
+    let currentTargets = [];
+    const steps = [
+      { t: [],                                        delay: 1500 },
+      { t: [{x:40,  y:900}],                          delay: 1000 },
+      { t: [{x:40,  y:900}],                          delay: 1200 },
+      { t: [{x:40,  y:900}, {x:-200, y:1400}],        delay: 800,  trigger: true },
+      { t: [{x:40,  y:900}, {x:-120, y:1200}],        delay: 600  },
+      { t: [{x:40,  y:900}, {x:-80,  y:1000}],        delay: 600  },
+      { t: [{x:40,  y:900}],                          delay: 1500 },
+      { t: [{x:40,  y:900}],                          delay: 1000 },
+      { t: [],                                        delay: 1200 },
+      { t: [],                                        delay: 1000, countdown: true },
+    ];
+
+    let step = 0, cd = null;
+    function tick() {
+      if (cd) { clearInterval(cd); cd = null; lockCountdown.textContent = ''; }
+      const s = steps[step % steps.length];
+      currentTargets = s.t;
+      drawRadar(s.t, MAX, Number(maxXSlider.value));
+      updateUI(s.t);
+      if (s.trigger) {
+        radarCard.classList.remove('triggered');
+        void radarCard.offsetWidth;
+        radarCard.classList.add('triggered');
+        setTimeout(() => radarCard.classList.remove('triggered'), 1800);
+      }
+      if (s.countdown) {
+        let sec = 10;
+        lockCountdown.textContent = `lock in ${sec}s`;
+        cd = setInterval(() => {
+          sec--;
+          lockCountdown.textContent = sec > 0 ? `lock in ${sec}s` : '';
+          if (sec <= 0) { clearInterval(cd); cd = null; }
+        }, 1000);
+      }
+      step++;
+      setTimeout(tick, s.delay);
+    }
+    setTimeout(tick, 800);
+  </script>
+</body>
+</html>

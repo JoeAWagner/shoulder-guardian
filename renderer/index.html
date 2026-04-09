@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Shoulder Guardian</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Custom titlebar -->
+  <div class="titlebar">
+    <div class="titlebar-left">
+      <div class="tb-icon">⊙</div>
+      <span class="tb-title">Shoulder Guardian</span>
+    </div>
+    <div class="titlebar-right">
+      <button class="win-btn" id="minimizeBtn">&#x2212;</button>
+      <button class="win-btn close-btn" id="closeBtn">&#x2715;</button>
+    </div>
+  </div>
+
+  <div class="app">
+
+    <!-- Connection strip -->
+    <div class="conn-strip">
+      <div class="conn-badge">
+        <span class="badge-dot" id="connDot"></span>
+        <span id="connStatus">Disconnected</span>
+      </div>
+      <select id="portSelect"><option value="">— Port —</option></select>
+      <button id="refreshBtn" title="Refresh">↻</button>
+      <button id="connectBtn">Connect</button>
+      <div class="strip-sep"></div>
+      <label class="pill-label">
+        <label class="pill-toggle">
+          <input type="checkbox" id="enableToggle" checked>
+          <span class="pill-track"><span class="pill-thumb"></span></span>
+        </label>
+        <span id="enableText">ON</span>
+      </label>
+    </div>
+
+    <!-- Radar visualization -->
+    <div class="radar-card" id="radarCard">
+      <canvas id="radarCanvas" width="444" height="220"></canvas>
+      <div class="radar-status-row">
+        <div class="target-count-badge" id="countBadge">0 targets</div>
+        <div class="status-badge empty" id="statusBadge">EMPTY</div>
+        <div class="lock-countdown" id="lockCountdown"></div>
+      </div>
+      <div class="target-list" id="targetList"></div>
+    </div>
+
+    <!-- Settings -->
+    <div class="settings-card">
+      <div class="settings-header">
+        <span class="settings-title">Settings</span>
+        <button id="applyBtn">Apply</button>
+      </div>
+
+      <!-- Row 0: Threat action -->
+      <div class="settings-row">
+        <div class="slider-group" style="flex:1">
+          <div class="slider-labels"><span>On Threat Detected</span></div>
+          <div class="segment-control">
+            <button class="seg-btn active" id="actionMinimize">Show Desktop</button>
+            <button class="seg-btn" id="actionLock">Lock Screen</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 1: Lock toggle + lock delay -->
+      <div class="settings-row">
+        <div class="setting-toggle-group">
+          <label class="pill-toggle">
+            <input type="checkbox" id="lockEnToggle">
+            <span class="pill-track"><span class="pill-thumb"></span></span>
+          </label>
+          <div class="toggle-info">
+            <span class="toggle-label">Lock on empty</span>
+            <span class="toggle-hint">Lock screen when nobody detected</span>
+          </div>
+        </div>
+        <div class="slider-group">
+          <div class="slider-labels">
+            <span>Lock Delay</span>
+            <span class="slider-val" id="lockDlyVal">30 s</span>
+          </div>
+          <input type="range" id="lockDlySlider" min="5" max="120" step="5" value="30">
+        </div>
+      </div>
+
+      <!-- Row 2: Exit on close -->
+      <div class="settings-row">
+        <div class="setting-toggle-group" style="flex:1">
+          <label class="pill-toggle">
+            <input type="checkbox" id="exitOnCloseToggle">
+            <span class="pill-track"><span class="pill-thumb"></span></span>
+          </label>
+          <div class="toggle-info">
+            <span class="toggle-label">Exit on close</span>
+            <span class="toggle-hint">Close button quits instead of hiding to tray</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Advanced collapsible -->
+      <div class="advanced-section">
+        <button class="advanced-toggle" id="advancedToggle">
+          <span>Advanced</span>
+          <span class="advanced-chevron" id="advancedChevron">▸</span>
+        </button>
+        <div class="advanced-body" id="advancedBody">
+
+          <!-- Row A: Polling + Smoothing -->
+          <div class="settings-row">
+            <div class="slider-group">
+              <div class="slider-labels">
+                <span>Polling</span>
+                <span class="slider-val" id="pollingVal">4 frames</span>
+              </div>
+              <input type="range" id="pollingSlider" min="1" max="5" step="1" value="4">
+              <div class="slider-hint">Consecutive frames needed to trigger</div>
+            </div>
+            <div class="slider-group">
+              <div class="slider-labels">
+                <span>Smoothing</span>
+                <span class="slider-val" id="smoothVal">35%</span>
+              </div>
+              <input type="range" id="smoothSlider" min="10" max="90" step="5" value="35">
+              <div class="slider-hint">Low = smoother, high = faster response</div>
+            </div>
+          </div>
+
+          <!-- Row A2: Cooldown -->
+          <div class="settings-row">
+            <div class="slider-group">
+              <div class="slider-labels">
+                <span>Cooldown</span>
+                <span class="slider-val" id="coolVal">5 s</span>
+              </div>
+              <input type="range" id="coolSlider" min="1" max="60" step="1" value="5">
+              <div class="slider-hint">Min time between triggers</div>
+            </div>
+          </div>
+
+          <!-- Row B: Max Depth + Detection Width -->
+          <div class="settings-row" style="margin-bottom:0">
+            <div class="slider-group">
+              <div class="slider-labels">
+                <span>Max Depth</span>
+                <span class="slider-val" id="maxRangeVal">2.0 m</span>
+              </div>
+              <input type="range" id="maxRangeSlider" min="500" max="5000" step="100" value="2000">
+              <div class="slider-hint">Ignore targets beyond this distance</div>
+            </div>
+            <div class="slider-group">
+              <div class="slider-labels">
+                <span>Width</span>
+                <span class="slider-val" id="maxXVal">±2.0 m</span>
+              </div>
+              <input type="range" id="maxXSlider" min="200" max="3000" step="100" value="2000">
+              <div class="slider-hint">Lateral detection range</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity Log -->
+    <div class="log-card">
+      <div class="log-bar">
+        <span class="log-title">Activity</span>
+        <div class="log-bar-actions">
+          <button id="openLogBtn" title="Open log file on disk">Open file</button>
+          <button id="clearLogBtn">Clear</button>
+        </div>
+      </div>
+      <div id="logBox"></div>
+    </div>
+
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Electron builder cache
+build/icons/
+
+# Logs
+*.log
+*.old.log
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# iCloud conflict copies
+* 2.*
+* 3.*
+* 4.*
+* 5.*
+
+# Editor
+.vscode/
+*.swp
+
+# Environment
+.env

@@ -1,0 +1,101 @@
+================================================================
+  SHOULDER GUARDIAN — BUILD & UPLOAD INSTRUCTIONS
+================================================================
+
+
+────────────────────────────────────────────────────────────────
+  PART 1 — ARDUINO SKETCH
+────────────────────────────────────────────────────────────────
+
+Requirements:
+  - Arduino IDE 2.x  (https://www.arduino.cc/en/software)
+  - Board: HiLetgo Pro Micro ATmega32U4
+
+1. Open Arduino IDE.
+
+2. Add the SparkFun board package (one-time):
+     File → Preferences → Additional Boards Manager URLs
+     Add: https://raw.githubusercontent.com/sparkfun/Arduino_Boards/main/IDE_Support/package_sparkfun_index.json
+     Then: Tools → Board → Boards Manager → search "SparkFun AVR" → Install
+
+3. Select the board:
+     Tools → Board → SparkFun AVR Boards → SparkFun Pro Micro
+     Tools → Processor → ATmega32U4 (5V, 16MHz)
+
+4. Select the port:
+     Tools → Port → (the COM port your Pro Micro is on)
+     If unsure, check Device Manager under "Ports (COM & LPT)"
+
+5. Open the sketch:
+     File → Open → shoulder-guardian/arduino/shoulder_surfer/shoulder_surfer/shoulder_surfer.ino
+
+6. Click Upload (→ arrow button).
+
+Note: If the upload fails, try double-pressing the reset button on
+the Pro Micro to force bootloader mode, then immediately click Upload.
+
+
+────────────────────────────────────────────────────────────────
+  PART 2 — ELECTRON APP (Development / Run Locally)
+────────────────────────────────────────────────────────────────
+
+Requirements:
+  - Node.js 20+  (https://nodejs.org)
+  - Run all commands from the shoulder-guardian/ folder
+
+First-time setup:
+  cd shoulder-guardian
+  npm install
+  npm run rebuild
+
+Run the app:
+  npm start
+
+
+────────────────────────────────────────────────────────────────
+  PART 3 — BUILD INSTALLER / DISTRIBUTABLE
+────────────────────────────────────────────────────────────────
+
+! IMPORTANT: Each platform must be built ON that platform.
+  Windows .exe  → build on a Windows machine
+  macOS .dmg    → build on a Mac
+
+  cd shoulder-guardian
+  npm install
+  npm run rebuild
+
+Windows — produces installer + portable .exe in dist/:
+  npm run build-win
+
+macOS — produces .dmg (Intel + Apple Silicon) in dist/:
+  npm run build-mac
+
+Output files:
+  dist/Shoulder Guardian Setup 1.4.0.exe   ← installer (recommended)
+  dist/Shoulder Guardian 1.4.0.exe         ← portable (no install needed)
+  dist/Shoulder Guardian-1.4.0.dmg         ← macOS disk image
+
+
+────────────────────────────────────────────────────────────────
+  TROUBLESHOOTING
+────────────────────────────────────────────────────────────────
+
+"npm run rebuild" fails:
+  Make sure you have Python and Visual Studio Build Tools installed.
+  On Windows: winget install Microsoft.VisualStudio.2022.BuildTools
+  Then re-run: npm run rebuild
+
+App can't find serial port:
+  - Make sure the Arduino is plugged in before launching the app
+  - Click the refresh button (↻) next to the port selector
+  - On Windows, check Device Manager for the COM port number
+
+No targets detected:
+  - The LD2450 detects MOVING targets — wave your hand to confirm
+  - Check LD2450 VCC reads ~5V (use RAW pin on Pro Micro, not VCC)
+  - Serial1 baud rate must be 250000 in the sketch
+
+App opens but immediately closes to tray:
+  - This is normal — click the tray icon to reopen the window
+
+================================================================

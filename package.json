@@ -1,0 +1,108 @@
+{
+  "name": "shoulder-guardian",
+  "version": "1.4.0",
+  "description": "Shoulder Guardian — mmWave presence detection for screen security",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "rebuild": "electron-rebuild -f -w serialport",
+    "make-icon": "node scripts/make-icon.js",
+    "build-win": "npm run make-icon && electron-builder --win",
+    "build-mac": "npm run make-icon && electron-builder --mac"
+  },
+  "dependencies": {
+    "@serialport/parser-readline": "^12.0.0",
+    "serialport": "^12.0.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.6.0",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.0.0",
+    "pngjs": "^7.0.0"
+  },
+  "build": {
+    "appId": "com.shoulderguardian.app",
+    "productName": "Shoulder Guardian",
+    "copyright": "Copyright © 2026",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/serialport/**",
+      "node_modules/@serialport/**"
+    ],
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**",
+      "node_modules/**",
+      "!node_modules/.cache/**",
+      "!node_modules/.bin/**",
+      "!**/*.map",
+      "!arduino/**",
+      "!scripts/**",
+      "!dist/**",
+      "!*.md"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "icon": "build/icon.png",
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "Shoulder Guardian",
+      "icon": "build/icon.png",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Shoulder Guardian"
+    }
+  }
+}
