@@ -383,6 +383,7 @@ trackSlider(lockDlySlider, 'lockDly',  lockDlyVal, v => v + ' s');
 trackSlider(maxRangeSlider,'maxRange', maxRangeVal,v => (v/1000).toFixed(1) + ' m');
 trackSlider(maxXSlider,    'maxX',     maxXVal,    v => '±' + (v/1000).toFixed(1) + ' m');
 trackSlider(pollingSlider, 'polling',  pollingVal, v => v + ' frames');
+trackSlider(smoothSlider,  'smooth',   smoothVal,  v => v + '%');
 
 // Polling changes app-side threat threshold immediately (no Apply needed)
 pollingSlider.addEventListener('input', () => {
