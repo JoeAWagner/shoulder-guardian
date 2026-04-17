@@ -122,6 +122,7 @@ void setup() {
   // Init display first — gives immediate visual feedback before the
   // 4-second LD2450 config sequence runs
   Serial.println("[SG] Init display...");
+  delay(3000); // let display power rail stabilise before sending SPI
   initDisplay();
 
   Serial1.begin(250000, SERIAL_8N1, LD_RX, LD_TX); // LD2450 binary frames
@@ -344,6 +345,9 @@ static PrevDot prevDots[3];
 void initDisplay() {
   if (panel->begin()) {
     Serial.println("[SG] display ready");
+    panel->fillScreen(0xF800); delay(1500); // RED
+    panel->fillScreen(0x07E0); delay(1500); // GREEN
+    panel->fillScreen(0x001F); delay(1500); // BLUE
     panel->fillScreen(C_BG);
     drawStaticElements();
   } else {
