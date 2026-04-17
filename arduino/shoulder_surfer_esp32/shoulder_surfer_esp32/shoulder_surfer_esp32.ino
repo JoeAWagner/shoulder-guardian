@@ -106,10 +106,9 @@ const unsigned long STATUS_WATCHDOG_MS = 150;
 #define DOT_R        6    // target dot radius in pixels
 
 // ── GFX objects ───────────────────────────────────────────────
-// Software SPI (Arduino_SWSPI) bitbangs the pins directly — no hardware
-// SPI peripheral involved, so no conflict with the USB/JTAG controller.
-// At 160 MHz the ESP32-C3 can toggle pins fast enough for smooth radar updates.
-Arduino_DataBus *bus   = new Arduino_SWSPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI);
+// Hardware SPI via GPIO matrix — works on any non-reserved pins.
+// Using FSPI (the only SPI peripheral on ESP32-C3) mapped to our chosen GPIOs.
+Arduino_DataBus *bus   = new Arduino_ESP32SPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI, GFX_NOT_DEFINED /* no MISO */, FSPI);
 Arduino_GFX    *panel  = new Arduino_GC9A01(bus, TFT_RST, 0, false);
 
 // ─────────────────────────────────────────────────────────────
