@@ -12,7 +12,7 @@ Three supported microcontroller boards. All run the same Electron app — just c
 | **SRAM** | 2.5 KB | 400 KB | 264 KB |
 | **Display** | Optional (`#define HAS_DISPLAY`) | Always on | Always on |
 | **Framebuffer** | No — selective redraw | ✅ Full canvas | ✅ Full canvas |
-| **VCC for LD2450** | **5 V** | 3.3 V | 3.3 V |
+| **VCC for LD2450** | **5 V** | **5 V** | **5 V** |
 | **Voltage divider on RX?** | ⚠ Yes if LD2450 TX is 5 V | ✗ Not needed | ✗ Not needed |
 | **SPI speed** | ~8 MHz | 80 MHz | 62.5 MHz |
 | **Arduino board name** | Arduino Pro Micro | ESP32C3 Dev Module | Waveshare RP2040 Zero |
