@@ -48,8 +48,8 @@
 // GC9A01 SPI — Software SPI (SWSPI) on non-JTAG pins
 #define TFT_SCK       0    // GPIO 0  (SCL)
 #define TFT_MOSI      1    // GPIO 1  (SDA)
-#define TFT_CS       10    // GPIO 10 (CS)
-#define TFT_DC        3    // GPIO 3  (DC)
+#define TFT_CS        3    // GPIO 3  (CS)  ← swapped to test DC/CS cross-wiring
+#define TFT_DC       10    // GPIO 10 (DC)  ← swapped to test DC/CS cross-wiring
 // RST wired directly to 3.3V — no GPIO needed (avoids strapping-pin issues)
 // BLK not present on this module — backlight is always on
 
