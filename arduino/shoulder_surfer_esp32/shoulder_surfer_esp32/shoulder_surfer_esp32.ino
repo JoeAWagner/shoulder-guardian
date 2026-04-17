@@ -106,9 +106,7 @@ const unsigned long STATUS_WATCHDOG_MS = 150;
 #define DOT_R        6    // target dot radius in pixels
 
 // ── GFX objects ───────────────────────────────────────────────
-// Hardware SPI via GPIO matrix — works on any non-reserved pins.
-// Using FSPI (the only SPI peripheral on ESP32-C3) mapped to our chosen GPIOs.
-Arduino_DataBus *bus   = new Arduino_ESP32SPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI, GFX_NOT_DEFINED /* no MISO */, FSPI);
+Arduino_DataBus *bus   = new Arduino_SWSPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI);
 Arduino_GFX    *panel  = new Arduino_GC9A01(bus, TFT_RST, 0, false);
 
 // ─────────────────────────────────────────────────────────────
@@ -346,7 +344,12 @@ static PrevDot prevDots[3];
 void initDisplay() {
   if (panel->begin()) {
     Serial.println("[SG] display ready");
-    panel->fillScreen(0xF800); // ← TEST: bright red — replace with C_BG once confirmed
+    // ── Colour flash test — hold each for 2 s ─────────────────
+    panel->fillScreen(0xF800); Serial.println("[SG] RED");   delay(2000);
+    panel->fillScreen(0x07E0); Serial.println("[SG] GREEN"); delay(2000);
+    panel->fillScreen(0x001F); Serial.println("[SG] BLUE");  delay(2000);
+    // ─────────────────────────────────────────────────────────
+    panel->fillScreen(C_BG);
     drawStaticElements();
   } else {
     Serial.println("[SG] display begin() failed — check wiring and pins");
