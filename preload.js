@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('arduino', {
   setTriggerAction:    (action) => ipcRenderer.invoke('set-trigger-action', action),
   setThreatThreshold:  (n)      => ipcRenderer.invoke('set-threat-threshold', n),
   setCloseToTray:      (v)      => ipcRenderer.invoke('set-close-to-tray', v),
+  setAlwaysOnTop:      (v)      => ipcRenderer.invoke('set-always-on-top', v),
+  setStartOnLogin:     (v)      => ipcRenderer.invoke('set-start-on-login', v),
+  getStartOnLogin:     ()       => ipcRenderer.invoke('get-start-on-login'),
   openLogFile:         ()       => ipcRenderer.invoke('open-log-file'),
   getLogPath:          ()       => ipcRenderer.invoke('get-log-path'),
 

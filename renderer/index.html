@@ -90,16 +90,40 @@
         </div>
       </div>
 
-      <!-- Row 2: Exit on close -->
+      <!-- Row 2: Exit on close + Always on top -->
       <div class="settings-row">
-        <div class="setting-toggle-group" style="flex:1">
+        <div class="setting-toggle-group">
           <label class="pill-toggle">
             <input type="checkbox" id="exitOnCloseToggle">
             <span class="pill-track"><span class="pill-thumb"></span></span>
           </label>
           <div class="toggle-info">
             <span class="toggle-label">Exit on close</span>
-            <span class="toggle-hint">Close button quits instead of hiding to tray</span>
+            <span class="toggle-hint">Quit instead of hiding to tray</span>
+          </div>
+        </div>
+        <div class="setting-toggle-group">
+          <label class="pill-toggle">
+            <input type="checkbox" id="alwaysOnTopToggle">
+            <span class="pill-track"><span class="pill-thumb"></span></span>
+          </label>
+          <div class="toggle-info">
+            <span class="toggle-label">Always on top</span>
+            <span class="toggle-hint">Window floats above all others</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 3: Start on login -->
+      <div class="settings-row">
+        <div class="setting-toggle-group" style="flex:1">
+          <label class="pill-toggle">
+            <input type="checkbox" id="startOnLoginToggle">
+            <span class="pill-track"><span class="pill-thumb"></span></span>
+          </label>
+          <div class="toggle-info">
+            <span class="toggle-label">Start on login</span>
+            <span class="toggle-hint">Launch automatically when you log in</span>
           </div>
         </div>
       </div>

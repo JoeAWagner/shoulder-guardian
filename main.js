@@ -22,6 +22,7 @@ let lockDelayMs     = 30000;  // synced from Arduino STATUS
 let lockEnabled     = false;  // synced from Arduino STATUS
 let triggerAction   = 'minimize';  // 'minimize' | 'lock'
 let closeToTray     = true;        // false = quit on window close
+let alwaysOnTop     = false;       // window floats above all others
 let threatFrames    = 0;      // consecutive frames with count >= 2
 let threatThreshold = 4;      // frames needed before triggering (user-configurable)
 let lastTargetCount = -1;     // tracks count changes for target appear/disappear logging
@@ -46,7 +47,14 @@ function logToFile(msg) {
       if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
       fs.renameSync(logFilePath, oldPath);
     }
-    fs.appendFileSync(logFilePath, msg + '\n', 'utf8');
+    // Prefix with full date for file — UI already shows time-only via ts()
+    const now    = new Date();
+    const date   = now.toISOString().slice(0, 10);               // 2026-04-09
+    const time   = now.toTimeString().slice(0, 8);               // 14:32:11
+    const prefix = `[${date} ${time}]`;
+    // Replace leading [HH:MM:SS AM/PM] or [H:MM:SS AM/PM] with full prefix
+    const line   = msg.replace(/^\[\d{1,2}:\d{2}:\d{2}.*?\]/, prefix);
+    fs.appendFileSync(logFilePath, line + '\n', 'utf8');
   } catch (_) {}
 }
 
@@ -175,7 +183,17 @@ app.on('activate', () => {
 // ── IPC: Window controls ──────────────────────────────────────
 ipcMain.handle('set-trigger-action',   (_, action) => { triggerAction   = action; });
 ipcMain.handle('set-threat-threshold', (_, n)      => { threatThreshold = Math.max(1, Math.min(5, n)); });
-ipcMain.handle('set-close-to-tray',    (_, v)      => { closeToTray     = Boolean(v); });
+ipcMain.handle('set-close-to-tray',    (_, v)      => { closeToTray = Boolean(v); });
+ipcMain.handle('set-always-on-top',    (_, v)      => {
+  alwaysOnTop = Boolean(v);
+  mainWindow.setAlwaysOnTop(alwaysOnTop);
+});
+ipcMain.handle('set-start-on-login',   (_, v)      => {
+  app.setLoginItemSettings({ openAtLogin: Boolean(v) });
+});
+ipcMain.handle('get-start-on-login',   ()          => {
+  return app.getLoginItemSettings().openAtLogin;
+});
 ipcMain.handle('window-minimize', () => mainWindow.minimize());
 ipcMain.handle('window-close', () => {
   if (closeToTray) {

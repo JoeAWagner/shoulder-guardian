@@ -1,13 +1,23 @@
 // ═══════════════════════════════════════════════════════════════
 //  Shoulder Surfer — Pro Micro ATmega32U4 + HLK-LD2450
 //
-//  Wiring:
+//  Wiring — LD2450 radar:
 //    LD2450 VCC  → 5V
 //    LD2450 GND  → GND
 //    LD2450 TX   → Pro Micro pin 0  (Serial1 RX)
 //    LD2450 RX   → Pro Micro pin 1  (Serial1 TX)
 //    ⚠ Add a 1kΩ/2kΩ voltage divider on pin 0 if your module
 //      outputs 5V on TX (most HLK modules are 3.3V tolerant).
+//
+//  Wiring — GC9A01 1.28" round display (optional, see #define HAS_DISPLAY):
+//    GC9A01 VCC  → 3.3V
+//    GC9A01 GND  → GND
+//    GC9A01 SCL  → Pro Micro pin 15 (SPI SCK)
+//    GC9A01 SDA  → Pro Micro pin 16 (SPI MOSI)
+//    GC9A01 CS   → Pro Micro pin 10 (TFT_CS)
+//    GC9A01 DC   → Pro Micro pin  9 (TFT_DC)
+//    GC9A01 RST  → Pro Micro pin  8 (TFT_RST)
+//    GC9A01 BLK  → Pro Micro pin  7 (TFT_BLK) or directly to 3.3V
 //
 //  Protocol:
 //    LD2450 → Arduino : 250000 baud binary frames (30 bytes each)
@@ -16,6 +26,59 @@
 // ═══════════════════════════════════════════════════════════════
 
 #include <EEPROM.h>
+
+// ═══════════════════════════════════════════════════════════════
+//  OPTIONAL: GC9A01 1.28" round TFT display
+//
+//  To enable the radar display:
+//    1. Install "Arduino_GFX_Library" by Moon On Our Nation
+//       via Sketch → Include Library → Manage Libraries
+//    2. Uncomment the #define HAS_DISPLAY line below
+//    3. Wire the display to the pins defined in TFT_* below
+//
+//  Without a display connected, leave HAS_DISPLAY commented out.
+//  The sketch runs identically — no display code is compiled in.
+// ═══════════════════════════════════════════════════════════════
+// #define HAS_DISPLAY
+
+#ifdef HAS_DISPLAY
+#include <Arduino_GFX_Library.h>
+
+// ── Display SPI pins (adjust to match your wiring) ───────────
+#define TFT_CS    10
+#define TFT_DC     9
+#define TFT_RST    8
+#define TFT_BLK    7   // backlight PWM pin; wire to 3.3V directly if unused
+
+// ── RGB565 colour palette ─────────────────────────────────────
+#define C_BG      0x0882   // #0d1117 — matches app background
+#define C_GRID    0x0200   // dark green — range arcs
+#define C_LINE    0x0100   // very dark green — centre line
+#define C_SENSOR  0x5D1F   // #58a6ff — sensor dot (matches app blue)
+#define C_DOT     0x07E0   // bright green — single target
+#define C_THREAT  0xF800   // red — ≥2 targets (shoulder-surfer alert)
+
+// ── Radar geometry (240 × 240 round display) ─────────────────
+#define RADAR_CX   120     // sensor centre X (middle of screen)
+#define RADAR_SY   228     // sensor Y (near bottom edge)
+#define RADAR_R    210     // pixel radius that represents maxRangeMm
+#define RADAR_ARCS   4     // number of range rings to draw
+#define DOT_R        5     // target dot radius in pixels
+
+// ── GFX object ───────────────────────────────────────────────
+Arduino_DataBus *bus = new Arduino_HWSPI(TFT_DC, TFT_CS);
+Arduino_GFX    *gfx = new Arduino_GC9A01(bus, TFT_RST, 0 /* rotation */, true /* IPS */);
+
+struct PrevDot { int16_t px, py; bool active; };
+static PrevDot prevDots[3];
+
+// Forward declarations
+void initDisplay();
+void updateDisplay();
+void drawStaticElements();
+void mmToPx(int16_t xMm, int16_t yMm, int16_t &px, int16_t &py);
+
+#endif // HAS_DISPLAY
 
 // ── Pin ──────────────────────────────────────────────────────
 const int  LED_PIN        = 17;    // Pro Micro RX LED
@@ -72,6 +135,9 @@ void setup() {
   memset(targets, 0, sizeof(targets));
   loadSettings();
   configLD2450();
+#ifdef HAS_DISPLAY
+  initDisplay();
+#endif
   startupBlink();
 }
 
@@ -177,6 +243,9 @@ void parseFrame() {
                        && (abs(targets[i].x) <= (int16_t)maxXMm);
     if (targets[i].valid) activeCount++;
   }
+#ifdef HAS_DISPLAY
+  updateDisplay();
+#endif
 }
 
 // ── STATUS to app ─────────────────────────────────────────────
@@ -294,3 +363,83 @@ void ledWrite(bool on) {
 void startupBlink() {
   for (int i = 0; i < 3; i++) { ledWrite(true); delay(100); ledWrite(false); delay(100); }
 }
+
+// ── Display functions (compiled only when HAS_DISPLAY is set) ─
+#ifdef HAS_DISPLAY
+
+// Convert mm radar coords → screen pixel coords.
+// X: negative = left of sensor, positive = right.
+// Y: always positive (distance from sensor).
+// Sensor sits at (RADAR_CX, RADAR_SY); targets are drawn above it.
+void mmToPx(int16_t xMm, int16_t yMm, int16_t &px, int16_t &py) {
+  px = (int16_t)(RADAR_CX + ((int32_t)xMm * RADAR_R) / (int32_t)maxRangeMm);
+  py = (int16_t)(RADAR_SY - ((int32_t)yMm * RADAR_R) / (int32_t)maxRangeMm);
+}
+
+// Draw range arcs, centre line and sensor dot.
+// Called once during init and again each frame after erasing old dots
+// (to restore any arc/line pixels the erase fillCircle may have overwritten).
+void drawStaticElements() {
+  // Range rings — full circles centred at sensor position.
+  // The lower halves extend below the screen edge and are naturally clipped.
+  for (int i = 1; i <= RADAR_ARCS; i++) {
+    int16_t r = (int16_t)((uint32_t)RADAR_R * i / RADAR_ARCS);
+    gfx->drawCircle(RADAR_CX, RADAR_SY, r, C_GRID);
+  }
+  // Mask the small strip below the sensor row to hide any arc fragments
+  // that land inside the visible area (RADAR_SY to the display bottom).
+  gfx->fillRect(0, RADAR_SY + 1, 240, 240 - RADAR_SY - 1, C_BG);
+  // Vertical centre line from top of display down to sensor
+  gfx->drawFastVLine(RADAR_CX, 0, RADAR_SY, C_LINE);
+  // Sensor dot on top of everything else
+  gfx->fillCircle(RADAR_CX, RADAR_SY, 4, C_SENSOR);
+}
+
+// One-time display initialisation called from setup().
+// Safe to call even if no display is physically connected:
+// SPI writes go to void, nothing crashes.
+void initDisplay() {
+  pinMode(TFT_BLK, OUTPUT);
+  digitalWrite(TFT_BLK, HIGH);   // turn on backlight
+  gfx->begin();                  // init SPI + send GC9A01 init sequence
+  gfx->fillScreen(C_BG);
+  drawStaticElements();
+  memset(prevDots, 0, sizeof(prevDots));  // mark all slots inactive
+}
+
+// Called from parseFrame() after targets[] and activeCount are updated.
+// Strategy: erase old dots → redraw static elements → draw new dots.
+// No framebuffer needed — only the changed pixels are touched.
+void updateDisplay() {
+  // 1. Erase previous dot positions
+  for (int i = 0; i < 3; i++) {
+    if (prevDots[i].active) {
+      gfx->fillCircle(prevDots[i].px, prevDots[i].py, DOT_R + 1, C_BG);
+    }
+  }
+
+  // 2. Restore any static elements the erase may have clipped
+  drawStaticElements();
+
+  // 3. Colour: green for a lone presence, red when ≥2 (shoulder-surfer alert)
+  uint16_t dotCol = (activeCount >= 2) ? C_THREAT : C_DOT;
+
+  // 4. Draw new dots and record their positions for the next erase pass
+  for (int i = 0; i < 3; i++) {
+    if (targets[i].valid) {
+      int16_t px, py;
+      mmToPx(targets[i].x, targets[i].y, px, py);
+      // Clamp to the radar field (above sensor row, inside screen width)
+      px = constrain(px, 0, 239);
+      py = constrain(py, 0, RADAR_SY - DOT_R - 1);
+      gfx->fillCircle(px, py, DOT_R, dotCol);
+      prevDots[i].px     = px;
+      prevDots[i].py     = py;
+      prevDots[i].active = true;
+    } else {
+      prevDots[i].active = false;
+    }
+  }
+}
+
+#endif // HAS_DISPLAY

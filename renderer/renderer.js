@@ -27,7 +27,9 @@ const enableToggle    = document.getElementById('enableToggle');
 const enableText      = document.getElementById('enableText');
 const actionMinimize    = document.getElementById('actionMinimize');
 const actionLock        = document.getElementById('actionLock');
-const exitOnCloseToggle = document.getElementById('exitOnCloseToggle');
+const exitOnCloseToggle  = document.getElementById('exitOnCloseToggle');
+const alwaysOnTopToggle  = document.getElementById('alwaysOnTopToggle');
+const startOnLoginToggle = document.getElementById('startOnLoginToggle');
 const pollingSlider   = document.getElementById('pollingSlider');
 const pollingVal      = document.getElementById('pollingVal');
 const smoothSlider    = document.getElementById('smoothSlider');
@@ -78,6 +80,21 @@ function smoothTargets(targets) {
 exitOnCloseToggle.addEventListener('change', () => {
   window.arduino.setCloseToTray(!exitOnCloseToggle.checked);
 });
+
+// ── Always on top toggle ──────────────────────────────────────
+alwaysOnTopToggle.addEventListener('change', () => {
+  window.arduino.setAlwaysOnTop(alwaysOnTopToggle.checked);
+  addLog(`[${ts()}] Always on top ${alwaysOnTopToggle.checked ? 'enabled' : 'disabled'}`, 'ok');
+});
+
+// ── Start on login toggle ─────────────────────────────────────
+startOnLoginToggle.addEventListener('change', () => {
+  window.arduino.setStartOnLogin(startOnLoginToggle.checked);
+  addLog(`[${ts()}] Start on login ${startOnLoginToggle.checked ? 'enabled' : 'disabled'}`, 'ok');
+});
+
+// Sync start-on-login state from OS on load
+window.arduino.getStartOnLogin().then(v => { startOnLoginToggle.checked = v; });
 
 // ── Advanced section toggle ───────────────────────────────────
 advancedToggle.addEventListener('click', () => {
