@@ -107,7 +107,7 @@ const unsigned long STATUS_WATCHDOG_MS = 150;
 
 // ── GFX objects ───────────────────────────────────────────────
 Arduino_DataBus *bus   = new Arduino_SWSPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI);
-Arduino_GFX    *panel  = new Arduino_GC9A01A(bus, TFT_RST, 0, false);
+Arduino_GFX    *panel  = new Arduino_GC9A01(bus, TFT_RST, 0, false);
 
 // ─────────────────────────────────────────────────────────────
 
