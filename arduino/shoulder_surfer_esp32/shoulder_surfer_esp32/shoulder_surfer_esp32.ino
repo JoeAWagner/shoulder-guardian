@@ -118,14 +118,23 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   ledWrite(false);
 
-  Serial.begin(115200);                            // USB CDC → Electron app
-  Serial1.begin(250000, SERIAL_8N1, LD_RX, LD_TX); // LD2450 binary frames
+  Serial.begin(115200);
+  delay(2000);  // give USB CDC time to enumerate before any prints
+  Serial.println("[SG] Shoulder Guardian starting...");
 
+  // Init display first — gives immediate visual feedback before the
+  // 4-second LD2450 config sequence runs
+  Serial.println("[SG] Init display...");
+  initDisplay();
+
+  Serial1.begin(250000, SERIAL_8N1, LD_RX, LD_TX); // LD2450 binary frames
   EEPROM.begin(EEPROM_SIZE);
   memset(targets, 0, sizeof(targets));
   loadSettings();
+
+  Serial.println("[SG] Configuring LD2450...");
   configLD2450();
-  initDisplay();
+  Serial.println("[SG] Ready.");
   startupBlink();
 }
 
@@ -374,13 +383,73 @@ void drawRadar() {
   canvas->flush();
 }
 
+// useCanvas tracks whether the framebuffer allocation succeeded.
+// If canvas->begin() fails the sketch falls back to direct panel drawing
+// (same selective-redraw approach as the Pro Micro sketch).
+static bool useCanvas = false;
+
+// Previous dot positions for the selective-redraw fallback path
+struct PrevDot { int16_t px, py; bool active; };
+static PrevDot prevDots[3];
+
 void initDisplay() {
   pinMode(TFT_BLK, OUTPUT);
-  digitalWrite(TFT_BLK, HIGH);         // backlight on
-  canvas->begin(40000000UL);            // 40 MHz SPI — reliable on most GC9A01 modules
-  drawRadar();
+  digitalWrite(TFT_BLK, HIGH);  // backlight on
+
+  useCanvas = canvas->begin(27000000UL);  // 27 MHz — conservative; safe on all modules
+  if (useCanvas) {
+    Serial.println("[SG] canvas ready (framebuffer mode)");
+    drawRadar();
+  } else {
+    // canvas->begin() failed — fall back to direct panel drawing
+    Serial.println("[SG] canvas FAILED — falling back to direct panel draw");
+    if (panel->begin(27000000UL)) {
+      Serial.println("[SG] panel ready (direct mode)");
+      panel->fillScreen(C_BG);
+      drawStaticDirect();
+    } else {
+      Serial.println("[SG] panel->begin() also failed — check wiring/pins");
+    }
+  }
+  memset(prevDots, 0, sizeof(prevDots));
 }
 
 void updateDisplay() {
-  drawRadar();
+  if (useCanvas) {
+    drawRadar();
+  } else {
+    updateDirect();
+  }
+}
+
+// ── Direct-draw helpers (fallback, no framebuffer) ────────────
+void drawStaticDirect() {
+  for (int i = 1; i <= RADAR_ARCS; i++) {
+    int16_t r = (int16_t)((uint32_t)RADAR_R * i / RADAR_ARCS);
+    panel->drawCircle(RADAR_CX, RADAR_SY, r, C_GRID);
+  }
+  panel->fillRect(0, RADAR_SY + 1, 240, 240 - RADAR_SY - 1, C_BG);
+  panel->drawFastVLine(RADAR_CX, 0, RADAR_SY, C_LINE);
+  panel->fillCircle(RADAR_CX, RADAR_SY, 4, C_SENSOR);
+}
+
+void updateDirect() {
+  for (int i = 0; i < 3; i++) {
+    if (prevDots[i].active)
+      panel->fillCircle(prevDots[i].px, prevDots[i].py, DOT_R + 1, C_BG);
+  }
+  drawStaticDirect();
+  uint16_t dotCol = (activeCount >= 2) ? C_THREAT : C_DOT;
+  for (int i = 0; i < 3; i++) {
+    if (targets[i].valid) {
+      int16_t px, py;
+      mmToPx(targets[i].x, targets[i].y, px, py);
+      px = constrain(px, DOT_R, 239 - DOT_R);
+      py = constrain(py, DOT_R, RADAR_SY - DOT_R - 1);
+      panel->fillCircle(px, py, DOT_R, dotCol);
+      prevDots[i] = { px, py, true };
+    } else {
+      prevDots[i].active = false;
+    }
+  }
 }
