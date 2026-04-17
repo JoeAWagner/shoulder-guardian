@@ -351,7 +351,7 @@ static PrevDot prevDots[3];
 void initDisplay() {
   if (panel->begin()) {
     Serial.println("[SG] display ready");
-    panel->fillScreen(C_BG);
+    panel->fillScreen(0xF800); // ← TEST: bright red — replace with C_BG once confirmed
     drawStaticElements();
   } else {
     Serial.println("[SG] display begin() failed — check wiring and pins");
