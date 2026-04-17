@@ -398,7 +398,13 @@ void initDisplay() {
 
   useCanvas = canvas->begin(27000000UL);  // 27 MHz — conservative; safe on all modules
   if (useCanvas) {
-    Serial.println("[SG] canvas ready (framebuffer mode)");
+    Serial.println("[SG] canvas ready — testing direct panel draw...");
+    // Write solid RED directly to the panel (bypasses canvas buffer).
+    // If the screen turns RED → panel hardware works, canvas flush is the problem.
+    // If the screen stays blank → SPI data is not reaching the display at all.
+    panel->fillScreen(0xF800);
+    delay(2000);
+    Serial.println("[SG] Direct draw test done — drawing radar...");
     drawRadar();
   } else {
     // canvas->begin() failed — fall back to direct panel drawing
