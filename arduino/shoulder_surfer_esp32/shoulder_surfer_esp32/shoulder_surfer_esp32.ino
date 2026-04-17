@@ -22,9 +22,9 @@
 //    GC9A01 GND  → GND
 //    GC9A01 SCL  → GPIO 0  (SW-SPI SCK)
 //    GC9A01 SDA  → GPIO 1  (SW-SPI MOSI)
-//    GC9A01 CS   → GPIO 2  (TFT_CS — strapping pin, safe after boot)
+//    GC9A01 CS   → GPIO 10 (TFT_CS)
 //    GC9A01 DC   → GPIO 3  (TFT_DC)
-//    GC9A01 RST  → GPIO 10 (TFT_RST — hardware reset)
+//    GC9A01 RST  → 3.3V directly (no GPIO — avoids strapping-pin issues)
 //    GC9A01 BLK  → not present on this module (backlight always on)
 //
 //  ── Arduino IDE setup ────────────────────────────────────────
@@ -48,9 +48,9 @@
 // GC9A01 SPI — Software SPI (SWSPI) on non-JTAG pins
 #define TFT_SCK       0    // GPIO 0  (SCL)
 #define TFT_MOSI      1    // GPIO 1  (SDA)
-#define TFT_CS        2    // GPIO 2  (CS — strapping pin, safe as GPIO after boot)
+#define TFT_CS       10    // GPIO 10 (CS)
 #define TFT_DC        3    // GPIO 3  (DC)
-#define TFT_RST      10    // GPIO 10 (RST)
+// RST wired directly to 3.3V — no GPIO needed (avoids strapping-pin issues)
 // BLK not present on this module — backlight is always on
 
 // ── EEPROM ────────────────────────────────────────────────────
@@ -107,7 +107,7 @@ const unsigned long STATUS_WATCHDOG_MS = 150;
 
 // ── GFX objects ───────────────────────────────────────────────
 Arduino_DataBus *bus   = new Arduino_SWSPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI);
-Arduino_GFX    *panel  = new Arduino_GC9A01(bus, TFT_RST, 0, false);
+Arduino_GFX    *panel  = new Arduino_GC9A01(bus, GFX_NOT_DEFINED /* RST → 3.3V */, 0, false);
 
 // ─────────────────────────────────────────────────────────────
 
