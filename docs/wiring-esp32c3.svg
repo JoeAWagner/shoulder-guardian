@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg width="780" height="506" viewBox="0 0 780 506" xmlns="http://www.w3.org/2000/svg">
+<svg width="780" height="530" viewBox="0 0 780 530" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <style>
       text { font-family: 'SF Mono','Fira Code','Consolas',monospace; }
@@ -9,17 +9,18 @@
       .sig { font-size: 9px; }
       .hdr { font-size:11px; font-weight:bold; letter-spacing:0.5px; }
       .cmp { font-size:12px; font-weight:bold; }
+      .warn { font-size:9px; fill:#e3b341; }
     </style>
   </defs>
 
   <!-- ── Background ─────────────────────────────────────────── -->
-  <rect width="780" height="506" fill="#0d1117" rx="12"/>
+  <rect width="780" height="530" fill="#0d1117" rx="12"/>
 
   <!-- ── Title bar ──────────────────────────────────────────── -->
   <rect width="780" height="52" fill="#161b22" rx="12"/>
   <rect y="40" width="780" height="12" fill="#161b22"/>
   <text class="ttl" x="390" y="22" text-anchor="middle">Shoulder Guardian — ESP32-C3 Super Mini Wiring</text>
-  <text class="sub"  x="390" y="42" text-anchor="middle">All GPIO are 3.3 V — no voltage divider needed  ·  Arduino IDE: USB CDC On Boot → Enabled</text>
+  <text class="sub"  x="390" y="42" text-anchor="middle">All GPIO are 3.3 V — no voltage divider needed  ·  Arduino IDE: USB CDC On Boot → Enabled  ·  Software SPI (avoids JTAG pins)</text>
 
   <!-- ── Column headers ─────────────────────────────────────── -->
   <rect x="10" y="58" width="220" height="24" fill="#1c2333" rx="4"/>
@@ -72,12 +73,12 @@
   <!-- ══════════════════════════════════════════════════════════
        SECTION 2 — GC9A01 Round Display  (always enabled)
        ══════════════════════════════════════════════════════════ -->
-  <rect x="10"  y="234" width="760" height="248" fill="#161b22" rx="6" stroke="#21262d" stroke-width="1"/>
-  <rect x="540" y="234" width="230" height="248" fill="#111827" rx="0"/>
-  <rect x="544" y="234" width="226" height="248" fill="#111827" rx="0 5 5 0"/>
+  <rect x="10"  y="234" width="760" height="272" fill="#161b22" rx="6" stroke="#21262d" stroke-width="1"/>
+  <rect x="540" y="234" width="230" height="272" fill="#111827" rx="0"/>
+  <rect x="544" y="234" width="226" height="272" fill="#111827" rx="0 5 5 0"/>
 
   <text class="cmp" x="657" y="254" text-anchor="middle" fill="#39d353">GC9A01  Display</text>
-  <text class="sub"  x="657" y="268" text-anchor="middle">(always enabled — canvas framebuffer)</text>
+  <text class="sub"  x="657" y="268" text-anchor="middle">(always enabled — software SPI, selective redraw)</text>
   <line x1="540" y1="273" x2="770" y2="273" stroke="#21262d" stroke-width="1"/>
 
   <!-- Row 5 — 3.3V → VCC -->
@@ -96,54 +97,55 @@
   <circle cx="536" cy="314" r="3.5" fill="#8b949e"/>
   <text class="pin" x="548" y="318">GND</text>
 
-  <!-- Row 7 — GPIO 4 (SCK) → SCL -->
-  <text class="pin" x="226" y="346" text-anchor="end">GPIO 4  (SPI SCK)</text>
+  <!-- Row 7 — GPIO 0 (SW-SCK) → SCL -->
+  <text class="pin" x="226" y="346" text-anchor="end">GPIO 0  (SW-SPI SCK)</text>
   <circle cx="234" cy="342" r="3.5" fill="#bc8cff"/>
   <line x1="234" y1="342" x2="536" y2="342" stroke="#bc8cff" stroke-width="2"/>
   <text class="sig" x="385" y="338" text-anchor="middle" fill="#bc8cff" opacity=".8">SPI SCK</text>
   <circle cx="536" cy="342" r="3.5" fill="#bc8cff"/>
   <text class="pin" x="548" y="346">SCL  (clock)</text>
 
-  <!-- Row 8 — GPIO 6 (MOSI) → SDA -->
-  <text class="pin" x="226" y="374" text-anchor="end">GPIO 6  (SPI MOSI)</text>
+  <!-- Row 8 — GPIO 10 (SW-MOSI) → SDA -->
+  <text class="pin" x="226" y="374" text-anchor="end">GPIO 10  (SW-SPI MOSI)</text>
   <circle cx="234" cy="370" r="3.5" fill="#39d353"/>
   <line x1="234" y1="370" x2="536" y2="370" stroke="#39d353" stroke-width="2"/>
   <text class="sig" x="385" y="366" text-anchor="middle" fill="#39d353" opacity=".8">SPI MOSI</text>
   <circle cx="536" cy="370" r="3.5" fill="#39d353"/>
   <text class="pin" x="548" y="374">SDA  (data)</text>
 
-  <!-- Row 9 — GPIO 7 → CS -->
-  <text class="pin" x="226" y="402" text-anchor="end">GPIO 7</text>
+  <!-- Row 9 — GPIO 3 → CS -->
+  <text class="pin" x="226" y="402" text-anchor="end">GPIO 3</text>
   <circle cx="234" cy="398" r="3.5" fill="#58a6ff"/>
   <line x1="234" y1="398" x2="536" y2="398" stroke="#58a6ff" stroke-width="2"/>
   <text class="sig" x="385" y="394" text-anchor="middle" fill="#58a6ff" opacity=".8">SPI CS</text>
   <circle cx="536" cy="398" r="3.5" fill="#58a6ff"/>
   <text class="pin" x="548" y="402">CS  (chip sel)</text>
 
-  <!-- Row 10 — GPIO 3 → DC -->
-  <text class="pin" x="226" y="430" text-anchor="end">GPIO 3</text>
+  <!-- Row 10 — GPIO 1 → DC -->
+  <text class="pin" x="226" y="430" text-anchor="end">GPIO 1</text>
   <circle cx="234" cy="426" r="3.5" fill="#ff7b72"/>
   <line x1="234" y1="426" x2="536" y2="426" stroke="#ff7b72" stroke-width="2"/>
   <text class="sig" x="385" y="422" text-anchor="middle" fill="#ff7b72" opacity=".8">DC</text>
   <circle cx="536" cy="426" r="3.5" fill="#ff7b72"/>
   <text class="pin" x="548" y="430">DC  (data/cmd)</text>
 
-  <!-- Row 11 — GPIO 10 → RST -->
-  <text class="pin" x="226" y="458" text-anchor="end">GPIO 10</text>
-  <circle cx="234" cy="454" r="3.5" fill="#ffa657"/>
-  <line x1="234" y1="454" x2="536" y2="454" stroke="#ffa657" stroke-width="2"/>
-  <text class="sig" x="385" y="450" text-anchor="middle" fill="#ffa657" opacity=".8">RST</text>
-  <circle cx="536" cy="454" r="3.5" fill="#ffa657"/>
+  <!-- Row 11 — 3.3V → RST (direct tie) -->
+  <text class="pin" x="226" y="458" text-anchor="end">3.3V  (direct)</text>
+  <circle cx="234" cy="454" r="3.5" fill="#f78166"/>
+  <line x1="234" y1="454" x2="536" y2="454" stroke="#f78166" stroke-width="2" stroke-dasharray="6 3"/>
+  <text class="sig" x="385" y="450" text-anchor="middle" fill="#f78166" opacity=".8">RST tied high</text>
+  <circle cx="536" cy="454" r="3.5" fill="#f78166"/>
   <text class="pin" x="548" y="458">RST  (reset)</text>
 
-  <!-- Row 12 — GPIO 1 → BLK -->
-  <text class="pin" x="226" y="474" text-anchor="end">GPIO 1</text>
-  <circle cx="234" cy="470" r="3.5" fill="#b5c0cc"/>
-  <line x1="234" y1="470" x2="536" y2="470" stroke="#b5c0cc" stroke-width="2"/>
-  <text class="sig" x="385" y="466" text-anchor="middle" fill="#b5c0cc" opacity=".8">BLK</text>
-  <circle cx="536" cy="470" r="3.5" fill="#b5c0cc"/>
-  <text class="pin" x="548" y="474">BLK  (backlight)</text>
+  <!-- Row 12 — 3.3V → BLK (direct tie) -->
+  <text class="pin" x="226" y="486" text-anchor="end">3.3V  (direct)</text>
+  <circle cx="234" cy="482" r="3.5" fill="#f78166"/>
+  <line x1="234" y1="482" x2="536" y2="482" stroke="#f78166" stroke-width="2" stroke-dasharray="6 3"/>
+  <text class="sig" x="385" y="478" text-anchor="middle" fill="#f78166" opacity=".8">BLK backlight on</text>
+  <circle cx="536" cy="482" r="3.5" fill="#f78166"/>
+  <text class="pin" x="548" y="486">BLK  (backlight)</text>
 
-  <!-- ── Tip ─────────────────────────────────────────────────── -->
-  <text class="sub" x="16" y="498" fill="#6e7681">Tip: wire BLK directly to 3.3 V to skip GPIO backlight control.  Avoid strapping pins 2, 8, 9 for inputs held high/low at boot.</text>
+  <!-- ── Warning + Tip ──────────────────────────────────────── -->
+  <text class="warn" x="16" y="511">⚠ GPIO 4–7 are JTAG pins claimed by USB Serial JTAG when CDC On Boot is enabled — do NOT use them for SPI.</text>
+  <text class="sub"  x="16" y="524" fill="#6e7681">Dashed lines = tied directly to 3.3 V rail, no GPIO needed.  Avoid strapping pins 2, 8, 9 for signals held HIGH/LOW at boot.</text>
 </svg>
