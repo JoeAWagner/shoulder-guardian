@@ -20,16 +20,12 @@
 //  ── Wiring — GC9A01 1.28" round display ─────────────────────
 //    GC9A01 VCC  → 3.3V
 //    GC9A01 GND  → GND
-//    GC9A01 SCL  → GPIO 4  (SW-SPI SCK)
-//    GC9A01 SDA  → GPIO 6  (SW-SPI MOSI)
-//    GC9A01 CS   → GPIO 7  (TFT_CS)
+//    GC9A01 SCL  → GPIO 0  (SW-SPI SCK)
+//    GC9A01 SDA  → GPIO 1  (SW-SPI MOSI)
+//    GC9A01 CS   → GPIO 2  (TFT_CS — strapping pin, safe after boot)
 //    GC9A01 DC   → GPIO 3  (TFT_DC)
 //    GC9A01 RST  → GPIO 10 (TFT_RST — hardware reset)
 //    GC9A01 BLK  → not present on this module (backlight always on)
-//
-//  ℹ GPIO 4, 6, 7 are JTAG pins shared with USB Serial JTAG.
-//    Software SPI (SWSPI) bit-bangs these pins directly and works
-//    in normal use.  Only an active JTAG debugger would conflict.
 //
 //  ── Arduino IDE setup ────────────────────────────────────────
 //    Board Manager : "esp32" by Espressif Systems
@@ -49,12 +45,12 @@
 #define LD_RX        20
 #define LD_TX        21
 
-// GC9A01 SPI — using Software SPI (SWSPI) on these pins
-#define TFT_SCK       4    // GPIO 4  (JTAG MTDI — safe with SWSPI, no debugger attached)
-#define TFT_MOSI      6    // GPIO 6  (JTAG MTMS)
-#define TFT_CS        7    // GPIO 7  (JTAG MTDO)
-#define TFT_DC        3    // GPIO 3
-#define TFT_RST      10    // GPIO 10 — hardware reset
+// GC9A01 SPI — Software SPI (SWSPI) on non-JTAG pins
+#define TFT_SCK       0    // GPIO 0  (SCL)
+#define TFT_MOSI      1    // GPIO 1  (SDA)
+#define TFT_CS        2    // GPIO 2  (CS — strapping pin, safe as GPIO after boot)
+#define TFT_DC        3    // GPIO 3  (DC)
+#define TFT_RST      10    // GPIO 10 (RST)
 // BLK not present on this module — backlight is always on
 
 // ── EEPROM ────────────────────────────────────────────────────
