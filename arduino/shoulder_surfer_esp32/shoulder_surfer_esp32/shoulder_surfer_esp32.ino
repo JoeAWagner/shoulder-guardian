@@ -342,16 +342,67 @@ void mmToPx(int16_t xMm, int16_t yMm, int16_t &px, int16_t &py) {
 struct PrevDot { int16_t px, py; bool active; };
 static PrevDot prevDots[3];
 
+// ── Bit-bang SPI using only digitalWrite — bypasses all libraries ─
+static void bbByte(uint8_t b) {
+  for (int i = 7; i >= 0; i--) {
+    digitalWrite(TFT_MOSI, (b >> i) & 1);
+    digitalWrite(TFT_SCK, HIGH);
+    digitalWrite(TFT_SCK, LOW);
+  }
+}
+static void bbCmd(uint8_t c) {
+  digitalWrite(TFT_DC, LOW);
+  digitalWrite(TFT_CS, LOW);
+  bbByte(c);
+  digitalWrite(TFT_CS, HIGH);
+}
+static void bbDat(uint8_t d) {
+  digitalWrite(TFT_DC, HIGH);
+  digitalWrite(TFT_CS, LOW);
+  bbByte(d);
+  digitalWrite(TFT_CS, HIGH);
+}
+
 void initDisplay() {
+  // ── Pure digitalWrite bit-bang test ──────────────────────────
+  pinMode(TFT_SCK,  OUTPUT); digitalWrite(TFT_SCK,  LOW);
+  pinMode(TFT_MOSI, OUTPUT); digitalWrite(TFT_MOSI, LOW);
+  pinMode(TFT_CS,   OUTPUT); digitalWrite(TFT_CS,   HIGH);
+  pinMode(TFT_DC,   OUTPUT); digitalWrite(TFT_DC,   HIGH);
+  pinMode(TFT_RST,  OUTPUT);
+
+  digitalWrite(TFT_RST, HIGH); delay(50);
+  digitalWrite(TFT_RST, LOW);  delay(100);
+  digitalWrite(TFT_RST, HIGH); delay(200);
+  Serial.println("[SG] bb RST done");
+
+  bbCmd(0x01); delay(150);        // SWRESET
+  bbCmd(0x11); delay(150);        // SLPOUT
+  bbCmd(0x3A); bbDat(0x55);       // COLMOD 16-bit
+  bbCmd(0x36); bbDat(0x00);       // MADCTL
+  bbCmd(0x29); delay(50);         // DISPON
+  Serial.println("[SG] bb init done");
+
+  // Fill RED
+  bbCmd(0x2A); bbDat(0); bbDat(0); bbDat(0); bbDat(239);
+  bbCmd(0x2B); bbDat(0); bbDat(0); bbDat(0); bbDat(239);
+  bbCmd(0x2C);
+  digitalWrite(TFT_DC, HIGH);
+  digitalWrite(TFT_CS, LOW);
+  for (uint32_t i = 0; i < 240UL * 240UL; i++) {
+    bbByte(0xF8); bbByte(0x00);
+  }
+  digitalWrite(TFT_CS, HIGH);
+  Serial.println("[SG] bb fill RED done");
+  delay(3000);
+
+  // ── Hand off to Arduino_GFX ──────────────────────────────────
   if (panel->begin()) {
     Serial.println("[SG] display ready");
-    panel->fillScreen(0xF800); delay(1500); // RED
-    panel->fillScreen(0x07E0); delay(1500); // GREEN
-    panel->fillScreen(0x001F); delay(1500); // BLUE
     panel->fillScreen(C_BG);
     drawStaticElements();
   } else {
-    Serial.println("[SG] display begin() failed — check wiring and pins");
+    Serial.println("[SG] display begin() failed");
   }
   memset(prevDots, 0, sizeof(prevDots));
 }
