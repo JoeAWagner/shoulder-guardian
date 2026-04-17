@@ -35,6 +35,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 #include <EEPROM.h>
+#include <SPI.h>
 #include <Arduino_GFX_Library.h>
 
 // ── Pins ──────────────────────────────────────────────────────
@@ -341,18 +342,82 @@ void mmToPx(int16_t xMm, int16_t yMm, int16_t &px, int16_t &py) {
 struct PrevDot { int16_t px, py; bool active; };
 static PrevDot prevDots[3];
 
+// ── Raw SPI helpers (bypass Arduino_GFX for diagnostics) ─────
+static inline void rawCmd(uint8_t c) {
+  digitalWrite(TFT_DC, LOW);
+  digitalWrite(TFT_CS, LOW);
+  SPI.transfer(c);
+  digitalWrite(TFT_CS, HIGH);
+}
+static inline void rawDat(uint8_t d) {
+  digitalWrite(TFT_DC, HIGH);
+  digitalWrite(TFT_CS, LOW);
+  SPI.transfer(d);
+  digitalWrite(TFT_CS, HIGH);
+}
+
 void initDisplay() {
-  if (panel->begin(20000000UL)) { // 20 MHz — conservative for GPIO-matrix-routed SPI
-    Serial.println("[SG] display ready");
-    // ── Colour flash test — hold each for 2 s ─────────────────
-    panel->fillScreen(0xF800); Serial.println("[SG] RED");   delay(2000);
-    panel->fillScreen(0x07E0); Serial.println("[SG] GREEN"); delay(2000);
-    panel->fillScreen(0x001F); Serial.println("[SG] BLUE");  delay(2000);
-    // ─────────────────────────────────────────────────────────
+  // ── Raw SPI test — bypasses Arduino_GFX entirely ─────────────
+  // Tells us definitively whether the SPI wiring is correct.
+  SPI.begin(TFT_SCK, -1, TFT_MOSI, -1);
+  SPI.beginTransaction(SPISettings(10000000UL, MSBFIRST, SPI_MODE0));
+
+  pinMode(TFT_CS,  OUTPUT); digitalWrite(TFT_CS,  HIGH);
+  pinMode(TFT_DC,  OUTPUT); digitalWrite(TFT_DC,  HIGH);
+  pinMode(TFT_RST, OUTPUT);
+
+  // Hardware reset
+  digitalWrite(TFT_RST, HIGH); delay(50);
+  digitalWrite(TFT_RST, LOW);  delay(50);
+  digitalWrite(TFT_RST, HIGH); delay(200);
+  Serial.println("[SG] RST done");
+
+  rawCmd(0x01); delay(150);       // SWRESET
+  rawCmd(0x11); delay(150);       // SLPOUT
+  rawCmd(0x3A); rawDat(0x55);     // COLMOD 16-bit
+  rawCmd(0x36); rawDat(0x00);     // MADCTL
+  rawCmd(0x29); delay(50);        // DISPON
+  Serial.println("[SG] init sent");
+
+  // Fill screen RED
+  rawCmd(0x2A);
+  rawDat(0x00); rawDat(0x00); rawDat(0x00); rawDat(239); // CASET 0-239
+  rawCmd(0x2B);
+  rawDat(0x00); rawDat(0x00); rawDat(0x00); rawDat(239); // RASET 0-239
+  rawCmd(0x2C);                                           // RAMWR
+
+  digitalWrite(TFT_DC, HIGH);
+  digitalWrite(TFT_CS, LOW);
+  for (uint32_t i = 0; i < 240UL * 240UL; i++) {
+    SPI.transfer(0xF8); SPI.transfer(0x00); // RED in RGB565
+  }
+  digitalWrite(TFT_CS, HIGH);
+  Serial.println("[SG] fill RED done — screen should be RED");
+  delay(3000);
+
+  // Fill screen GREEN
+  rawCmd(0x2A);
+  rawDat(0x00); rawDat(0x00); rawDat(0x00); rawDat(239);
+  rawCmd(0x2B);
+  rawDat(0x00); rawDat(0x00); rawDat(0x00); rawDat(239);
+  rawCmd(0x2C);
+  digitalWrite(TFT_DC, HIGH);
+  digitalWrite(TFT_CS, LOW);
+  for (uint32_t i = 0; i < 240UL * 240UL; i++) {
+    SPI.transfer(0x07); SPI.transfer(0xE0); // GREEN
+  }
+  digitalWrite(TFT_CS, HIGH);
+  Serial.println("[SG] fill GREEN done — screen should be GREEN");
+  delay(3000);
+
+  SPI.endTransaction();
+  Serial.println("[SG] raw test complete");
+
+  // ── Hand back to Arduino_GFX for real operation ───────────────
+  SPI.end();
+  if (panel->begin()) {
     panel->fillScreen(C_BG);
     drawStaticElements();
-  } else {
-    Serial.println("[SG] display begin() failed — check wiring and pins");
   }
   memset(prevDots, 0, sizeof(prevDots));
 }
