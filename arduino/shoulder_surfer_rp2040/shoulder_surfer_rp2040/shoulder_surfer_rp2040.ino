@@ -112,7 +112,7 @@ const unsigned long STATUS_WATCHDOG_MS = 150;
 // Canvas (off-screen framebuffer) → flicker-free full-frame rendering.
 // 240×240 × 2 bytes = ~115 KB — fits comfortably in RP2040's 264 KB SRAM.
 Arduino_DataBus *bus   = new Arduino_HWSPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI);
-Arduino_GFX    *panel  = new Arduino_GC9A01(bus, TFT_RST, 0 /* rotation */, true /* IPS */);
+Arduino_GFX    *panel  = new Arduino_GC9A01(bus, TFT_RST, 0 /* rotation */, false /* IPS — set true if display has washed-out/inverted colours */);
 Arduino_Canvas *canvas = new Arduino_Canvas(240, 240, panel, 0, 0);
 
 // ─────────────────────────────────────────────────────────────
@@ -379,7 +379,7 @@ void drawRadar() {
 void initDisplay() {
   pinMode(TFT_BLK, OUTPUT);
   digitalWrite(TFT_BLK, HIGH);  // backlight on
-  canvas->begin(62500000UL);     // 62.5 MHz — RP2040 SPI max for reliable operation
+  canvas->begin(40000000UL);     // 40 MHz — reliable on most GC9A01 modules
   drawRadar();
 }
 

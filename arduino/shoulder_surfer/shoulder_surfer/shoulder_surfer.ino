@@ -67,7 +67,7 @@
 
 // ── GFX object ───────────────────────────────────────────────
 Arduino_DataBus *bus = new Arduino_HWSPI(TFT_DC, TFT_CS);
-Arduino_GFX    *gfx = new Arduino_GC9A01(bus, TFT_RST, 0 /* rotation */, true /* IPS */);
+Arduino_GFX    *gfx = new Arduino_GC9A01(bus, TFT_RST, 0 /* rotation */, false /* IPS — set true if display has washed-out/inverted colours */);
 
 struct PrevDot { int16_t px, py; bool active; };
 static PrevDot prevDots[3];
