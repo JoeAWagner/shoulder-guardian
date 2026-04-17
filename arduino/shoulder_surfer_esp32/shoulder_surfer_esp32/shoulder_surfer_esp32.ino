@@ -8,7 +8,7 @@
 //
 //  Key advantages of the ESP32-C3 build:
 //    • 400 KB SRAM → full 240×240 framebuffer (no flicker)
-//    • 160 MHz     → fast canvas flush over 80 MHz SPI
+//    • 160 MHz     → fast enough for software SPI at radar update rates
 //    • 3.3 V GPIO  → no voltage divider needed for LD2450
 //
 //  ── Wiring — HLK-LD2450 radar ───────────────────────────────
@@ -20,12 +20,16 @@
 //  ── Wiring — GC9A01 1.28" round display ─────────────────────
 //    GC9A01 VCC  → 3.3V
 //    GC9A01 GND  → GND
-//    GC9A01 SCL  → GPIO 4  (SPI SCK)
-//    GC9A01 SDA  → GPIO 6  (SPI MOSI)
+//    GC9A01 SCL  → GPIO 4  (SW-SPI SCK)
+//    GC9A01 SDA  → GPIO 6  (SW-SPI MOSI)
 //    GC9A01 CS   → GPIO 7  (TFT_CS)
 //    GC9A01 DC   → GPIO 3  (TFT_DC)
-//    GC9A01 RST  → GPIO 10 (TFT_RST)
-//    GC9A01 BLK  → GPIO 1  (TFT_BLK) or wire directly to 3.3V
+//    GC9A01 RST  → GPIO 10 (TFT_RST — hardware reset)
+//    GC9A01 BLK  → not present on this module (backlight always on)
+//
+//  ℹ GPIO 4, 6, 7 are JTAG pins shared with USB Serial JTAG.
+//    Software SPI (SWSPI) bit-bangs these pins directly and works
+//    in normal use.  Only an active JTAG debugger would conflict.
 //
 //  ── Arduino IDE setup ────────────────────────────────────────
 //    Board Manager : "esp32" by Espressif Systems
@@ -45,13 +49,13 @@
 #define LD_RX        20
 #define LD_TX        21
 
-// GC9A01 SPI — avoid strapping pins 2, 8, 9
-#define TFT_SCK       4
-#define TFT_MOSI      6
-#define TFT_CS        7
-#define TFT_DC        3
-#define TFT_RST      10
-#define TFT_BLK       1   // backlight; HIGH = on. Wire to 3.3V to skip GPIO control.
+// GC9A01 SPI — using Software SPI (SWSPI) on these pins
+#define TFT_SCK       4    // GPIO 4  (JTAG MTDI — safe with SWSPI, no debugger attached)
+#define TFT_MOSI      6    // GPIO 6  (JTAG MTMS)
+#define TFT_CS        7    // GPIO 7  (JTAG MTDO)
+#define TFT_DC        3    // GPIO 3
+#define TFT_RST      10    // GPIO 10 — hardware reset
+// BLK not present on this module — backlight is always on
 
 // ── EEPROM ────────────────────────────────────────────────────
 #define EEPROM_SIZE  16
@@ -106,11 +110,11 @@ const unsigned long STATUS_WATCHDOG_MS = 150;
 #define DOT_R        6    // target dot radius in pixels
 
 // ── GFX objects ───────────────────────────────────────────────
-// Canvas (off-screen framebuffer) → flicker-free full-frame rendering.
-// 240×240 × 2 bytes = ~115 KB — comfortable on 400 KB ESP32 SRAM.
-Arduino_DataBus *bus    = new Arduino_HWSPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI);
-Arduino_GFX    *panel   = new Arduino_GC9A01(bus, TFT_RST, 0 /* rotation */, false /* IPS — set true if display has washed-out/inverted colours */);
-Arduino_Canvas *canvas  = new Arduino_Canvas(240, 240, panel, 0, 0);
+// Software SPI (Arduino_SWSPI) bitbangs the pins directly — no hardware
+// SPI peripheral involved, so no conflict with the USB/JTAG controller.
+// At 160 MHz the ESP32-C3 can toggle pins fast enough for smooth radar updates.
+Arduino_DataBus *bus   = new Arduino_SWSPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI);
+Arduino_GFX    *panel  = new Arduino_GC9A01(bus, TFT_RST, 0, false);
 
 // ─────────────────────────────────────────────────────────────
 
@@ -340,111 +344,30 @@ void mmToPx(int16_t xMm, int16_t yMm, int16_t &px, int16_t &py) {
   py = (int16_t)(RADAR_SY - ((int32_t)yMm * RADAR_R) / (int32_t)maxRangeMm);
 }
 
-// drawRadar: renders the complete radar scene into the off-screen canvas,
-// then flushes the full 240×240 frame to the display in one SPI burst.
-// Because everything is drawn to RAM first, the screen never shows a
-// partially-updated state — no flicker, no tearing.
-void drawRadar() {
-  // ── Background ──────────────────────────────────────────────
-  canvas->fillScreen(C_BG);
-
-  // ── Range arcs ──────────────────────────────────────────────
-  // Full circles centred at the sensor position. The lower halves
-  // extend off-screen (or are masked below); only the upper semicircles
-  // appear as range rings in the radar view.
-  for (int i = 1; i <= RADAR_ARCS; i++) {
-    int16_t r = (int16_t)((uint32_t)RADAR_R * i / RADAR_ARCS);
-    canvas->drawCircle(RADAR_CX, RADAR_SY, r, C_GRID);
-  }
-
-  // Mask the strip below the sensor row (hides any arc fragments)
-  canvas->fillRect(0, RADAR_SY + 1, 240, 240 - RADAR_SY - 1, C_BG);
-
-  // ── Centre line ─────────────────────────────────────────────
-  canvas->drawFastVLine(RADAR_CX, 0, RADAR_SY, C_LINE);
-
-  // ── Sensor dot ──────────────────────────────────────────────
-  canvas->fillCircle(RADAR_CX, RADAR_SY, 4, C_SENSOR);
-
-  // ── Target dots ─────────────────────────────────────────────
-  // Green = lone presence, Red = shoulder-surfer alert (≥2 people)
-  uint16_t dotCol = (activeCount >= 2) ? C_THREAT : C_DOT;
-  for (int i = 0; i < 3; i++) {
-    if (targets[i].valid) {
-      int16_t px, py;
-      mmToPx(targets[i].x, targets[i].y, px, py);
-      px = constrain(px, DOT_R, 239 - DOT_R);
-      py = constrain(py, DOT_R, RADAR_SY - DOT_R - 1);
-      canvas->fillCircle(px, py, DOT_R, dotCol);
-    }
-  }
-
-  // ── Flush canvas → display ───────────────────────────────────
-  canvas->flush();
-}
-
-// useCanvas tracks whether the framebuffer allocation succeeded.
-// If canvas->begin() fails the sketch falls back to direct panel drawing
-// (same selective-redraw approach as the Pro Micro sketch).
-static bool useCanvas = false;
-
-// Previous dot positions for the selective-redraw fallback path
+// Previous dot positions for selective redraw (erase old, draw new)
 struct PrevDot { int16_t px, py; bool active; };
 static PrevDot prevDots[3];
 
 void initDisplay() {
-  pinMode(TFT_BLK, OUTPUT);
-  digitalWrite(TFT_BLK, HIGH);  // backlight on
-
-  useCanvas = canvas->begin(27000000UL);  // 27 MHz — conservative; safe on all modules
-  if (useCanvas) {
-    Serial.println("[SG] canvas ready — testing direct panel draw...");
-    // Write solid RED directly to the panel (bypasses canvas buffer).
-    // If the screen turns RED → panel hardware works, canvas flush is the problem.
-    // If the screen stays blank → SPI data is not reaching the display at all.
-    panel->fillScreen(0xF800);
-    delay(2000);
-    Serial.println("[SG] Direct draw test done — drawing radar...");
-    drawRadar();
+  if (panel->begin()) {
+    Serial.println("[SG] display ready");
+    panel->fillScreen(C_BG);
+    drawStaticElements();
   } else {
-    // canvas->begin() failed — fall back to direct panel drawing
-    Serial.println("[SG] canvas FAILED — falling back to direct panel draw");
-    if (panel->begin(27000000UL)) {
-      Serial.println("[SG] panel ready (direct mode)");
-      panel->fillScreen(C_BG);
-      drawStaticDirect();
-    } else {
-      Serial.println("[SG] panel->begin() also failed — check wiring/pins");
-    }
+    Serial.println("[SG] display begin() failed — check wiring and pins");
   }
   memset(prevDots, 0, sizeof(prevDots));
 }
 
 void updateDisplay() {
-  if (useCanvas) {
-    drawRadar();
-  } else {
-    updateDirect();
-  }
-}
-
-// ── Direct-draw helpers (fallback, no framebuffer) ────────────
-void drawStaticDirect() {
-  for (int i = 1; i <= RADAR_ARCS; i++) {
-    int16_t r = (int16_t)((uint32_t)RADAR_R * i / RADAR_ARCS);
-    panel->drawCircle(RADAR_CX, RADAR_SY, r, C_GRID);
-  }
-  panel->fillRect(0, RADAR_SY + 1, 240, 240 - RADAR_SY - 1, C_BG);
-  panel->drawFastVLine(RADAR_CX, 0, RADAR_SY, C_LINE);
-  panel->fillCircle(RADAR_CX, RADAR_SY, 4, C_SENSOR);
-}
-
-void updateDirect() {
+  // Erase previous dot positions
   for (int i = 0; i < 3; i++) {
     if (prevDots[i].active)
       panel->fillCircle(prevDots[i].px, prevDots[i].py, DOT_R + 1, C_BG);
   }
-  drawStaticDirect();
+  // Restore static elements (arcs/line may have been clipped by erase)
+  drawStaticElements();
+  // Draw new dots
   uint16_t dotCol = (activeCount >= 2) ? C_THREAT : C_DOT;
   for (int i = 0; i < 3; i++) {
     if (targets[i].valid) {
@@ -453,9 +376,19 @@ void updateDirect() {
       px = constrain(px, DOT_R, 239 - DOT_R);
       py = constrain(py, DOT_R, RADAR_SY - DOT_R - 1);
       panel->fillCircle(px, py, DOT_R, dotCol);
-      prevDots[i] = { px, py, true };
+      prevDots[i].px = px; prevDots[i].py = py; prevDots[i].active = true;
     } else {
       prevDots[i].active = false;
     }
   }
+}
+
+void drawStaticElements() {
+  for (int i = 1; i <= RADAR_ARCS; i++) {
+    int16_t r = (int16_t)((uint32_t)RADAR_R * i / RADAR_ARCS);
+    panel->drawCircle(RADAR_CX, RADAR_SY, r, C_GRID);
+  }
+  panel->fillRect(0, RADAR_SY + 1, 240, 240 - RADAR_SY - 1, C_BG);
+  panel->drawFastVLine(RADAR_CX, 0, RADAR_SY, C_LINE);
+  panel->fillCircle(RADAR_CX, RADAR_SY, 4, C_SENSOR);
 }
