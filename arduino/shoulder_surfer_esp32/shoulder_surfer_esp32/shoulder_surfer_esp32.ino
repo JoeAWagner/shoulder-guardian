@@ -106,7 +106,7 @@ const unsigned long STATUS_WATCHDOG_MS = 150;
 #define DOT_R        6    // target dot radius in pixels
 
 // ── GFX objects ───────────────────────────────────────────────
-Arduino_DataBus *bus   = new Arduino_SWSPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI);
+Arduino_DataBus *bus   = new Arduino_ESP32SPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI, GFX_NOT_DEFINED, FSPI);
 Arduino_GFX    *panel  = new Arduino_GC9A01(bus, TFT_RST, 0, false);
 
 // ─────────────────────────────────────────────────────────────
@@ -342,7 +342,7 @@ struct PrevDot { int16_t px, py; bool active; };
 static PrevDot prevDots[3];
 
 void initDisplay() {
-  if (panel->begin()) {
+  if (panel->begin(20000000UL)) { // 20 MHz — conservative for GPIO-matrix-routed SPI
     Serial.println("[SG] display ready");
     // ── Colour flash test — hold each for 2 s ─────────────────
     panel->fillScreen(0xF800); Serial.println("[SG] RED");   delay(2000);
