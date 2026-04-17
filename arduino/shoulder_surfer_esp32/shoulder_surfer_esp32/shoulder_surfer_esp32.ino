@@ -106,7 +106,7 @@ const unsigned long STATUS_WATCHDOG_MS = 150;
 #define DOT_R        6    // target dot radius in pixels
 
 // ── GFX objects ───────────────────────────────────────────────
-Arduino_DataBus *bus   = new Arduino_ESP32SPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI, GFX_NOT_DEFINED, FSPI);
+Arduino_DataBus *bus   = new Arduino_SWSPI(TFT_DC, TFT_CS, TFT_MOSI, TFT_SCK); // SCK/MOSI swapped to test cross-wiring
 Arduino_GFX    *panel  = new Arduino_GC9A01(bus, TFT_RST, 0, false);
 
 // ─────────────────────────────────────────────────────────────
