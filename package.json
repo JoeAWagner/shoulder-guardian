@@ -1,6 +1,6 @@
 {
   "name": "shoulder-guardian",
-  "version": "1.4.30",
+  "version": "1.4.31",
   "description": "Shoulder Guardian — mmWave presence detection for screen security",
   "main": "main.js",
   "scripts": {
@@ -90,7 +90,7 @@
     },
     "win": {
       "icon": "build/icon.png",
-      "publisherName": [],
+      "sign": "./scripts/sign.js",
       "target": [
         {
           "target": "nsis",

@@ -96,7 +96,6 @@ function initUpdater() {
   autoUpdater.autoDownload         = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowDowngrade       = false;
-  autoUpdater.disableWebInstaller  = true;
 
   // Pipe electron-updater's internal log to our log file so we can diagnose issues
   autoUpdater.logger = {
