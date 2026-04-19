@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('arduino', {
   setAlwaysOnTop:      (v)      => ipcRenderer.invoke('set-always-on-top', v),
   setStartOnLogin:     (v)      => ipcRenderer.invoke('set-start-on-login', v),
   getStartOnLogin:     ()       => ipcRenderer.invoke('get-start-on-login'),
+  getPrefs:            ()       => ipcRenderer.invoke('get-prefs'),
   openLogFile:         ()       => ipcRenderer.invoke('open-log-file'),
   getLogPath:          ()       => ipcRenderer.invoke('get-log-path'),
 

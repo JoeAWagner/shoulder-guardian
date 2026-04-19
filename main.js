@@ -23,9 +23,36 @@ let lockEnabled     = false;  // synced from Arduino STATUS
 let triggerAction   = 'minimize';  // 'minimize' | 'lock'
 let closeToTray     = true;        // false = quit on window close
 let alwaysOnTop     = false;       // window floats above all others
+let prefsPath       = null;        // set in loadPrefs()
 let threatFrames    = 0;      // consecutive frames with count >= 2
 let threatThreshold = 4;      // frames needed before triggering (user-configurable)
 let lastTargetCount = -1;     // tracks count changes for target appear/disappear logging
+
+// ── Settings persistence ──────────────────────────────────────
+function loadPrefs() {
+  try {
+    const dir = app.getPath('userData');
+    prefsPath = path.join(dir, 'prefs.json');
+    if (fs.existsSync(prefsPath)) {
+      const data = JSON.parse(fs.readFileSync(prefsPath, 'utf8'));
+      if (typeof data.alwaysOnTop     === 'boolean') alwaysOnTop     = data.alwaysOnTop;
+      if (typeof data.closeToTray     === 'boolean') closeToTray     = data.closeToTray;
+      if (data.triggerAction === 'minimize' || data.triggerAction === 'lock')
+        triggerAction = data.triggerAction;
+      if (typeof data.threatThreshold === 'number')
+        threatThreshold = Math.max(1, Math.min(5, data.threatThreshold));
+    }
+  } catch (_) {}
+}
+
+function savePrefs() {
+  try {
+    if (!prefsPath) return;
+    fs.writeFileSync(prefsPath, JSON.stringify(
+      { alwaysOnTop, closeToTray, triggerAction, threatThreshold }, null, 2
+    ), 'utf8');
+  } catch (_) {}
+}
 
 // ── File logger ───────────────────────────────────────────────
 let logFilePath = null;
@@ -108,6 +135,7 @@ function createWindow() {
     },
   });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  if (alwaysOnTop) mainWindow.setAlwaysOnTop(true);
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.on('close', (e) => {
     if (!app.isQuitting) {
@@ -167,7 +195,7 @@ function rebuildTrayMenu() {
 }
 
 // ── App lifecycle ─────────────────────────────────────────────
-app.whenReady().then(() => { initLogger(); createWindow(); createTray(); });
+app.whenReady().then(() => { loadPrefs(); initLogger(); createWindow(); createTray(); });
 app.on('window-all-closed', () => {});
 app.on('before-quit', () => {
   app.isQuitting = true;
@@ -181,12 +209,13 @@ app.on('activate', () => {
 });
 
 // ── IPC: Window controls ──────────────────────────────────────
-ipcMain.handle('set-trigger-action',   (_, action) => { triggerAction   = action; });
-ipcMain.handle('set-threat-threshold', (_, n)      => { threatThreshold = Math.max(1, Math.min(5, n)); });
-ipcMain.handle('set-close-to-tray',    (_, v)      => { closeToTray = Boolean(v); });
+ipcMain.handle('set-trigger-action',   (_, action) => { triggerAction   = action; savePrefs(); });
+ipcMain.handle('set-threat-threshold', (_, n)      => { threatThreshold = Math.max(1, Math.min(5, n)); savePrefs(); });
+ipcMain.handle('set-close-to-tray',    (_, v)      => { closeToTray = Boolean(v); savePrefs(); });
 ipcMain.handle('set-always-on-top',    (_, v)      => {
   alwaysOnTop = Boolean(v);
   mainWindow.setAlwaysOnTop(alwaysOnTop);
+  savePrefs();
 });
 ipcMain.handle('set-start-on-login',   (_, v)      => {
   app.setLoginItemSettings({ openAtLogin: Boolean(v) });
@@ -194,6 +223,7 @@ ipcMain.handle('set-start-on-login',   (_, v)      => {
 ipcMain.handle('get-start-on-login',   ()          => {
   return app.getLoginItemSettings().openAtLogin;
 });
+ipcMain.handle('get-prefs', () => ({ alwaysOnTop, closeToTray, triggerAction, threatThreshold }));
 ipcMain.handle('window-minimize', () => mainWindow.minimize());
 ipcMain.handle('window-close', () => {
   if (closeToTray) {

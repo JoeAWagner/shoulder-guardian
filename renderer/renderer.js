@@ -96,6 +96,19 @@ startOnLoginToggle.addEventListener('change', () => {
 // Sync start-on-login state from OS on load
 window.arduino.getStartOnLogin().then(v => { startOnLoginToggle.checked = v; });
 
+// Restore persisted settings (alwaysOnTop, closeToTray, triggerAction, threatThreshold)
+window.arduino.getPrefs().then(prefs => {
+  alwaysOnTopToggle.checked  = prefs.alwaysOnTop;
+  exitOnCloseToggle.checked  = !prefs.closeToTray;
+  const isLock = prefs.triggerAction === 'lock';
+  actionMinimize.classList.toggle('active', !isLock);
+  actionLock.classList.toggle('active',      isLock);
+  if (prefs.threatThreshold !== undefined) {
+    pollingSlider.value    = prefs.threatThreshold;
+    pollingVal.textContent = prefs.threatThreshold + ' frames';
+  }
+});
+
 // ── Advanced section toggle ───────────────────────────────────
 advancedToggle.addEventListener('click', () => {
   const open = advancedBody.classList.toggle('open');
