@@ -27,6 +27,11 @@ contextBridge.exposeInMainWorld('arduino', {
   openLogFile:         ()       => ipcRenderer.invoke('open-log-file'),
   getLogPath:          ()       => ipcRenderer.invoke('get-log-path'),
 
+  // Auto-update
+  checkForUpdate:   ()   => ipcRenderer.invoke('check-for-update'),
+  installUpdate:    ()   => ipcRenderer.invoke('install-update'),
+  onUpdateStatus:   (cb) => ipcRenderer.on('update-status', (_, d) => cb(d)),
+
   // Window controls
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowClose:    () => ipcRenderer.invoke('window-close'),

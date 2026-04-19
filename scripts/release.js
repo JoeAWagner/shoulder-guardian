@@ -134,6 +134,15 @@ if (!files.length) {
   process.exit(1);
 }
 
+// Also upload latest.yml — required by electron-updater to detect new releases
+const ymlName = platform === 'darwin' ? 'latest-mac.yml' : 'latest.yml';
+const ymlPath = path.join(distDir, ymlName);
+if (fs.existsSync(ymlPath)) {
+  files.push(ymlPath);
+} else {
+  console.warn(`  ⚠ ${ymlName} not found — auto-update checking will not work`);
+}
+
 files.forEach(f => console.log(`  Found: ${path.basename(f)}`));
 
 // ── Release notes ─────────────────────────────────────────────

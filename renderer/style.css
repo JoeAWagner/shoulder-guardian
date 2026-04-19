@@ -307,6 +307,32 @@ input[type="range"] { width: 100%; accent-color: var(--blue); cursor: pointer; h
 .log-warn    { color: #d29922; }
 .log-muted   { color: var(--muted); }
 
+/* ── Update banner ───────────────────────────────────────────── */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: rgba(88,166,255,0.1);
+  border: 1px solid rgba(88,166,255,0.3);
+  border-radius: 8px;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.update-icon { font-size: 14px; }
+.update-banner span#updateMsg { flex: 1; color: var(--blue); font-weight: 600; }
+.update-banner #installUpdateBtn {
+  padding: 3px 12px; font-size: 11px;
+  background: var(--blue-dim); color: var(--blue);
+  border-color: rgba(88,166,255,0.4);
+}
+.update-dismiss {
+  padding: 2px 7px; font-size: 11px;
+  background: transparent; color: var(--muted);
+  border-color: transparent;
+}
+.update-dismiss:hover { color: var(--text); background: var(--border); filter: none; }
+
 /* ── Mini mode ───────────────────────────────────────────────── */
 .mini-btn { font-size: 15px; }
 body.mini .conn-strip,

@@ -22,6 +22,14 @@
 
   <div class="app">
 
+    <!-- Update banner (shown when update downloaded and ready) -->
+    <div class="update-banner" id="updateBanner" style="display:none">
+      <span class="update-icon">⬆</span>
+      <span id="updateMsg">Update ready</span>
+      <button id="installUpdateBtn">Restart &amp; Install</button>
+      <button class="update-dismiss" id="dismissUpdateBtn">✕</button>
+    </div>
+
     <!-- Connection strip -->
     <div class="conn-strip">
       <div class="conn-badge">

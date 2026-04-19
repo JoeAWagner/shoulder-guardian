@@ -241,6 +241,30 @@ window.arduino.onStatus((status) => {
   }
 });
 
+// ── Auto-update ───────────────────────────────────────────────
+const updateBanner    = document.getElementById('updateBanner');
+const updateMsg       = document.getElementById('updateMsg');
+const installUpdateBtn = document.getElementById('installUpdateBtn');
+const dismissUpdateBtn = document.getElementById('dismissUpdateBtn');
+
+window.arduino.onUpdateStatus((data) => {
+  if (data.type === 'ready') {
+    updateMsg.textContent    = `Update v${data.version} ready`;
+    updateBanner.style.display = 'flex';
+  } else if (data.type === 'downloading') {
+    updateMsg.textContent    = `Downloading update v${data.version}…`;
+    updateBanner.style.display = 'flex';
+  } else if (data.type === 'progress') {
+    updateMsg.textContent    = `Downloading update… ${data.percent}%`;
+    updateBanner.style.display = 'flex';
+  } else {
+    updateBanner.style.display = 'none';
+  }
+});
+
+installUpdateBtn.addEventListener('click', () => window.arduino.installUpdate());
+dismissUpdateBtn.addEventListener('click', () => { updateBanner.style.display = 'none'; });
+
 // ── Triggered event ───────────────────────────────────────────
 window.arduino.onTriggered((targets) => {
   radarCard.classList.remove('triggered');

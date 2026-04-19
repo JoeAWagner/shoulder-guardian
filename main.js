@@ -4,6 +4,7 @@ const fs     = require('fs');
 const { exec } = require('child_process');
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
+const { autoUpdater } = require('electron-updater');
 
 let mainWindow;
 let tray;
@@ -11,7 +12,8 @@ let port         = null;
 let parser       = null;
 let protectionOn = true;
 let isConnected  = false;
-let flashTimer   = null;
+let flashTimer    = null;
+let updateReady   = false;   // true once update-downloaded fires
 
 // ── App-side action state (cooldown + lock timer) ────────────
 let lastTriggerTime = 0;
@@ -85,6 +87,54 @@ function logToFile(msg) {
     const line   = msg.replace(/^\[\d{1,2}:\d{2}:\d{2}.*?\]/, prefix);
     fs.appendFileSync(logFilePath, line + '\n', 'utf8');
   } catch (_) {}
+}
+
+// ── Auto-updater ──────────────────────────────────────────────
+function initUpdater() {
+  if (!app.isPackaged) return;   // skip in dev / npm start
+
+  autoUpdater.autoDownload        = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('checking-for-update', () => {
+    logToFile(`[${ts()}] Checking for updates…`);
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    const msg = `[${ts()}] Update available: v${info.version} — downloading…`;
+    logToFile(msg);
+    mainWindow?.webContents.send('log', msg);
+    mainWindow?.webContents.send('update-status', { type: 'downloading', version: info.version });
+    rebuildTrayMenu();
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    logToFile(`[${ts()}] App is up to date (v${app.getVersion()})`);
+    mainWindow?.webContents.send('update-status', { type: 'none' });
+  });
+
+  autoUpdater.on('download-progress', (p) => {
+    mainWindow?.webContents.send('update-status', {
+      type: 'progress', version: '', percent: Math.round(p.percent)
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    updateReady = true;
+    const msg = `[${ts()}] Update v${info.version} ready — restart to install`;
+    logToFile(msg);
+    mainWindow?.webContents.send('log', msg);
+    mainWindow?.webContents.send('update-status', { type: 'ready', version: info.version });
+    rebuildTrayMenu();
+  });
+
+  autoUpdater.on('error', (err) => {
+    logToFile(`[${ts()}] Update error: ${err.message}`);
+    mainWindow?.webContents.send('update-status', { type: 'none' });
+  });
+
+  // Check 30 s after launch so startup is never delayed
+  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 30000);
 }
 
 // ── Tray icon (programmatic BGRA circle) ─────────────────────
@@ -179,6 +229,18 @@ function toggleWindow() {
 }
 
 function rebuildTrayMenu() {
+  const updateItems = updateReady
+    ? [
+        { type: 'separator' },
+        { label: '⬆ Restart to Install Update', click: () => autoUpdater.quitAndInstall() },
+      ]
+    : app.isPackaged
+      ? [
+          { type: 'separator' },
+          { label: 'Check for Updates', click: () => autoUpdater.checkForUpdates().catch(() => {}) },
+        ]
+      : [];
+
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: mainWindow?.isVisible() ? 'Hide Window' : 'Show Window', click: () => toggleWindow() },
     { type: 'separator' },
@@ -196,12 +258,14 @@ function rebuildTrayMenu() {
     { label: `Status: ${isConnected ? 'Connected' : 'Disconnected'}`, enabled: false },
     { type: 'separator' },
     { label: 'Open Log File', click: () => shell.openPath(logFilePath || '') },
+    ...updateItems,
+    { type: 'separator' },
     { label: 'Quit', click: () => { app.isQuitting = true; app.quit(); } },
   ]));
 }
 
 // ── App lifecycle ─────────────────────────────────────────────
-app.whenReady().then(() => { loadPrefs(); initLogger(); createWindow(); createTray(); });
+app.whenReady().then(() => { loadPrefs(); initLogger(); createWindow(); createTray(); initUpdater(); });
 app.on('window-all-closed', () => {});
 app.on('before-quit', () => {
   app.isQuitting = true;
@@ -241,6 +305,10 @@ ipcMain.handle('set-mini-mode', (_, mini) => {
   }
   savePrefs();
 });
+ipcMain.handle('check-for-update', () => {
+  if (app.isPackaged) autoUpdater.checkForUpdates().catch(() => {});
+});
+ipcMain.handle('install-update', () => autoUpdater.quitAndInstall());
 ipcMain.handle('window-minimize', () => mainWindow.minimize());
 ipcMain.handle('window-close', () => {
   if (closeToTray) {
