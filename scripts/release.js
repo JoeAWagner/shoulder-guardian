@@ -134,6 +134,12 @@ if (!files.length) {
   process.exit(1);
 }
 
+// Also upload .blockmap files — required for differential (faster) updates
+const blockmaps = fs.readdirSync(distDir)
+  .filter(f => f.endsWith('.blockmap') && f.includes(VERSION))
+  .map(f => path.join(distDir, f));
+files.push(...blockmaps);
+
 // Also upload latest.yml — required by electron-updater to detect new releases
 const ymlName = platform === 'darwin' ? 'latest-mac.yml' : 'latest.yml';
 const ymlPath = path.join(distDir, ymlName);

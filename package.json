@@ -1,6 +1,6 @@
 {
   "name": "shoulder-guardian",
-  "version": "1.4.27",
+  "version": "1.4.28",
   "description": "Shoulder Guardian — mmWave presence detection for screen security",
   "main": "main.js",
   "scripts": {
@@ -111,7 +111,12 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Shoulder Guardian"
+      "shortcutName": "Shoulder Guardian",
+      "artifactName": "Shoulder-Guardian-Setup-${version}.${ext}",
+      "disableWebInstaller": true
+    },
+    "portable": {
+      "artifactName": "Shoulder-Guardian-${version}.${ext}"
     }
   }
 }
