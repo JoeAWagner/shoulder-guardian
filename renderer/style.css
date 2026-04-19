@@ -342,19 +342,26 @@ body.mini .log-card  { display: none; }
 body.mini .app {
   gap: 0;
   padding: 0;
+  height: auto;
+  overflow: visible;
 }
 
 body.mini .radar-card {
   border-radius: 0;
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
+  border: none;
   border-top: 1px solid var(--border2);
-  padding: 6px 8px 5px;
-  gap: 4px;
+  padding: 4px 0 4px;
+  gap: 0;
 }
 
-body.mini .target-list { display: none; }
+body.mini #radarCanvas {
+  border-radius: 0;
+  border: none;
+  display: block;
+}
+
+body.mini .radar-status-row { display: none; }
+body.mini .target-list       { display: none; }
 
 body.mini #miniBtn { color: var(--blue); }
 

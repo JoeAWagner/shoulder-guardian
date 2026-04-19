@@ -203,7 +203,7 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   if (alwaysOnTop) mainWindow.setAlwaysOnTop(true);
   if (miniMode) {
-    mainWindow.setSize(468, 295);
+    mainWindow.setSize(444, 267);
     mainWindow.setResizable(false);
   }
   mainWindow.once('ready-to-show', () => mainWindow.show());
@@ -311,7 +311,7 @@ ipcMain.handle('get-prefs', () => ({ alwaysOnTop, closeToTray, miniMode, trigger
 ipcMain.handle('set-mini-mode', (_, mini) => {
   miniMode = Boolean(mini);
   if (miniMode) {
-    mainWindow.setSize(468, 295);
+    mainWindow.setSize(444, 267);
     mainWindow.setResizable(false);
   } else {
     mainWindow.setSize(500, 820);
