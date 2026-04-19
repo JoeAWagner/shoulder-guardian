@@ -16,6 +16,15 @@ const path         = require('path');
 const fs           = require('fs');
 const os           = require('os');
 
+// Load .env from project root so env vars don't need to be set system-wide
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) {
+  fs.readFileSync(envPath, 'utf8').split(/\r?\n/).forEach(line => {
+    const m = line.match(/^\s*([\w_]+)\s*=\s*(.+?)\s*$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+  });
+}
+
 exports.default = async function sign(configuration) {
   const filePath = configuration.path;
 
