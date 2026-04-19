@@ -64,6 +64,10 @@ exports.default = async function sign(configuration) {
     throw new Error(`Azure.CodeSigning.Dlib.dll not found at: ${dlib}`);
   }
 
+  if (!process.env.AZURE_TENANT_ID) {
+    throw new Error('AZURE_TENANT_ID is not set. Add it to your .env file. Find it in the Azure portal under Azure Active Directory → Overview.');
+  }
+
   const signtool = findSigntool();
   if (!signtool) {
     throw new Error('signtool.exe not found. Install the Windows 10/11 SDK from https://developer.microsoft.com/windows/downloads/windows-sdk/');
