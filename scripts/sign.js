@@ -121,11 +121,16 @@ exports.default = async function sign(configuration) {
       console.warn('[sign] Multiple certs found — identifying Trusted Signing cert…');
       const certs = parseCerts(result.output);
 
-      // Trusted Signing cert is self-signed (issuedTo === issuedBy) and not Adobe
-      const trusted = certs.find(c =>
-        !c.issuedTo?.toLowerCase().includes('adobe') &&
-        !c.issuedBy?.toLowerCase().includes('adobe')
+      // Known certs to skip — Adobe intermediates and any stale local certs
+      const skipPatterns = [
+        'adobe',
+        '997e4620-0e86-429c-b5f3-6a45cbba48ee',
+      ];
+      const isSkipped = (c) => skipPatterns.some(p =>
+        c.issuedTo?.toLowerCase().includes(p) ||
+        c.issuedBy?.toLowerCase().includes(p)
       );
+      const trusted = certs.find(c => !isSkipped(c));
 
       if (trusted) {
         console.log(`[sign] Retrying with Trusted Signing cert SHA1: ${trusted.sha1}`);
