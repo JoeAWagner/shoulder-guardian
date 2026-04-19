@@ -25,6 +25,24 @@ if (fs.existsSync(envPath)) {
   });
 }
 
+// Find signtool.exe in the Windows SDK — it's not on PATH by default
+function findSigntool() {
+  const kitRoot = 'C:\\Program Files (x86)\\Windows Kits\\10\\bin';
+  if (!fs.existsSync(kitRoot)) return null;
+  // Find the highest-versioned SDK subfolder
+  const versions = fs.readdirSync(kitRoot)
+    .filter(d => /^\d+\.\d+\.\d+\.\d+$/.test(d))
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  for (const ver of versions) {
+    const candidate = path.join(kitRoot, ver, 'x64', 'signtool.exe');
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  // Fallback: flat x64 folder
+  const flat = path.join(kitRoot, 'x64', 'signtool.exe');
+  if (fs.existsSync(flat)) return flat;
+  return null;
+}
+
 exports.default = async function sign(configuration) {
   const filePath = configuration.path;
 
@@ -46,6 +64,12 @@ exports.default = async function sign(configuration) {
     throw new Error(`Azure.CodeSigning.Dlib.dll not found at: ${dlib}`);
   }
 
+  const signtool = findSigntool();
+  if (!signtool) {
+    throw new Error('signtool.exe not found. Install the Windows 10/11 SDK from https://developer.microsoft.com/windows/downloads/windows-sdk/');
+  }
+  console.log(`[sign] Using signtool: ${signtool}`);
+
   // Write a temp metadata JSON that the dlib reads
   const metadata  = {
     Endpoint:                 endpoint,
@@ -59,7 +83,7 @@ exports.default = async function sign(configuration) {
     console.log(`[sign] Signing ${path.basename(filePath)}…`);
     execSync(
       [
-        'signtool sign',
+        `"${signtool}" sign`,
         `/dlib "${dlib}"`,
         `/dmdf "${metaPath}"`,
         '/fd SHA256',
