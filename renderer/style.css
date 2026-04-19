@@ -350,8 +350,11 @@ body.mini .radar-card {
   border-right: none;
   border-bottom: none;
   border-top: 1px solid var(--border2);
-  padding: 10px 12px 8px;
+  padding: 6px 8px 5px;
+  gap: 4px;
 }
+
+body.mini .target-list { display: none; }
 
 body.mini #miniBtn { color: var(--blue); }
 
