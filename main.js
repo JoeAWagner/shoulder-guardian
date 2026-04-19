@@ -93,48 +93,62 @@ function logToFile(msg) {
 function initUpdater() {
   if (!app.isPackaged) return;   // skip in dev / npm start
 
-  autoUpdater.autoDownload        = true;
+  autoUpdater.autoDownload         = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.allowDowngrade       = false;
+
+  // Pipe electron-updater's internal log to our log file so we can diagnose issues
+  autoUpdater.logger = {
+    info:  (m) => logToFile(`[updater] ${typeof m === 'object' ? JSON.stringify(m) : m}`),
+    warn:  (m) => logToFile(`[updater WARN] ${typeof m === 'object' ? JSON.stringify(m) : m}`),
+    error: (m) => logToFile(`[updater ERROR] ${typeof m === 'object' ? JSON.stringify(m) : m}`),
+    debug: (_) => {},   // too noisy — enable if needed
+  };
+
+  function sendStatus(data) {
+    mainWindow?.webContents.send('update-status', data);
+  }
+  function sendLog(msg) {
+    logToFile(msg);
+    mainWindow?.webContents.send('log', msg);
+  }
 
   autoUpdater.on('checking-for-update', () => {
     logToFile(`[${ts()}] Checking for updates…`);
   });
 
   autoUpdater.on('update-available', (info) => {
-    const msg = `[${ts()}] Update available: v${info.version} — downloading…`;
-    logToFile(msg);
-    mainWindow?.webContents.send('log', msg);
-    mainWindow?.webContents.send('update-status', { type: 'downloading', version: info.version });
+    sendLog(`[${ts()}] Update available: v${info.version} — downloading…`);
+    sendStatus({ type: 'downloading', version: info.version });
     rebuildTrayMenu();
   });
 
   autoUpdater.on('update-not-available', () => {
     logToFile(`[${ts()}] App is up to date (v${app.getVersion()})`);
-    mainWindow?.webContents.send('update-status', { type: 'none' });
+    sendStatus({ type: 'none' });
   });
 
   autoUpdater.on('download-progress', (p) => {
-    mainWindow?.webContents.send('update-status', {
-      type: 'progress', version: '', percent: Math.round(p.percent)
-    });
+    sendStatus({ type: 'progress', version: '', percent: Math.round(p.percent) });
   });
 
   autoUpdater.on('update-downloaded', (info) => {
     updateReady = true;
-    const msg = `[${ts()}] Update v${info.version} ready — restart to install`;
-    logToFile(msg);
-    mainWindow?.webContents.send('log', msg);
-    mainWindow?.webContents.send('update-status', { type: 'ready', version: info.version });
+    sendLog(`[${ts()}] Update v${info.version} ready — restart to install`);
+    sendStatus({ type: 'ready', version: info.version });
     rebuildTrayMenu();
   });
 
   autoUpdater.on('error', (err) => {
-    logToFile(`[${ts()}] Update error: ${err.message}`);
-    mainWindow?.webContents.send('update-status', { type: 'none' });
+    const msg = `[${ts()}] Update error: ${err.message}`;
+    sendLog(msg);
+    sendStatus({ type: 'error', message: err.message });
   });
 
   // Check 30 s after launch so startup is never delayed
-  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 30000);
+  setTimeout(() => autoUpdater.checkForUpdates().catch((err) => {
+    logToFile(`[${ts()}] Update check failed: ${err.message}`);
+  }), 30000);
 }
 
 // ── Tray icon (programmatic BGRA circle) ─────────────────────

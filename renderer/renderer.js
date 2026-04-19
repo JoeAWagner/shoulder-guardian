@@ -248,17 +248,29 @@ const installUpdateBtn = document.getElementById('installUpdateBtn');
 const dismissUpdateBtn = document.getElementById('dismissUpdateBtn');
 
 window.arduino.onUpdateStatus((data) => {
-  if (data.type === 'ready') {
-    updateMsg.textContent    = `Update v${data.version} ready`;
-    updateBanner.style.display = 'flex';
-  } else if (data.type === 'downloading') {
-    updateMsg.textContent    = `Downloading update v${data.version}…`;
-    updateBanner.style.display = 'flex';
-  } else if (data.type === 'progress') {
-    updateMsg.textContent    = `Downloading update… ${data.percent}%`;
-    updateBanner.style.display = 'flex';
-  } else {
-    updateBanner.style.display = 'none';
+  switch (data.type) {
+    case 'ready':
+      updateMsg.textContent      = `Update v${data.version} ready`;
+      installUpdateBtn.style.display = 'inline-block';
+      updateBanner.style.display = 'flex';
+      break;
+    case 'downloading':
+      updateMsg.textContent      = `Downloading update v${data.version}…`;
+      installUpdateBtn.style.display = 'none';
+      updateBanner.style.display = 'flex';
+      break;
+    case 'progress':
+      updateMsg.textContent      = `Downloading update… ${data.percent}%`;
+      installUpdateBtn.style.display = 'none';
+      updateBanner.style.display = 'flex';
+      break;
+    case 'error':
+      updateMsg.textContent      = `Update failed — check Activity log`;
+      installUpdateBtn.style.display = 'none';
+      updateBanner.style.display = 'flex';
+      break;
+    default:
+      updateBanner.style.display = 'none';
   }
 });
 
