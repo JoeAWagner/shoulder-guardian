@@ -7,32 +7,77 @@
   PART 1 — ARDUINO SKETCH
 ────────────────────────────────────────────────────────────────
 
-Requirements:
-  - Arduino IDE 2.x  (https://www.arduino.cc/en/software)
-  - Board: HiLetgo Pro Micro ATmega32U4
+Three supported boards.  Pick the one you have and follow the
+matching section below.  All three boards run the same Electron
+app — just select the correct COM port when prompted.
 
-1. Open Arduino IDE.
+Required library (all boards):
+  Arduino IDE → Sketch → Include Library → Manage Libraries
+  Search: Arduino_GFX_Library  (by Moon On Our Nation) → Install
 
-2. Add the SparkFun board package (one-time):
-     File → Preferences → Additional Boards Manager URLs
-     Add: https://raw.githubusercontent.com/sparkfun/Arduino_Boards/main/IDE_Support/package_sparkfun_index.json
-     Then: Tools → Board → Boards Manager → search "SparkFun AVR" → Install
 
-3. Select the board:
-     Tools → Board → SparkFun AVR Boards → SparkFun Pro Micro
-     Tools → Processor → ATmega32U4 (5V, 16MHz)
+  ── A. Pro Micro (ATmega32U4) ────────────────────────────────
 
-4. Select the port:
-     Tools → Port → (the COM port your Pro Micro is on)
-     If unsure, check Device Manager under "Ports (COM & LPT)"
+  Sketch: arduino/shoulder_surfer/shoulder_surfer/shoulder_surfer.ino
 
-5. Open the sketch:
-     File → Open → shoulder-guardian/arduino/shoulder_surfer/shoulder_surfer/shoulder_surfer.ino
+  Board setup (one-time):
+    File → Preferences → Additional Boards Manager URLs
+    Add: https://raw.githubusercontent.com/sparkfun/Arduino_Boards/main/IDE_Support/package_sparkfun_index.json
+    Tools → Board → Boards Manager → search "SparkFun AVR" → Install
 
-6. Click Upload (→ arrow button).
+  Board settings:
+    Tools → Board      → SparkFun AVR Boards → SparkFun Pro Micro
+    Tools → Processor  → ATmega32U4 (5V, 16 MHz)
+    Tools → Port       → (COM port shown in Device Manager)
 
-Note: If the upload fails, try double-pressing the reset button on
-the Pro Micro to force bootloader mode, then immediately click Upload.
+  Note: Display support is optional.  Uncomment #define HAS_DISPLAY
+  at the top of the sketch to enable the GC9A01 round display.
+  See docs/wiring-pro-micro.svg for wiring.
+
+  Upload: Click the → arrow button in Arduino IDE.
+  If upload fails, double-press the reset button on the Pro Micro
+  to force bootloader mode, then immediately click Upload.
+
+
+  ── B. ESP32-C3 Super Mini ───────────────────────────────────
+
+  Sketch: arduino/shoulder_surfer_esp32/shoulder_surfer_esp32/shoulder_surfer_esp32.ino
+
+  Board setup (one-time):
+    File → Preferences → Additional Boards Manager URLs
+    Add: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+    Tools → Board → Boards Manager → search "esp32" by Espressif Systems → Install
+
+  Board settings:
+    Tools → Board          → ESP32C3 Dev Module
+    Tools → USB CDC On Boot → Enabled   ← REQUIRED for Serial over USB
+    Tools → Port           → (COM port shown in Device Manager)
+
+  See docs/wiring-esp32c3.svg for wiring.
+  Note: GPIO 4–7 are JTAG pins — do not use them for SPI.
+
+  Upload: Click the → arrow button in Arduino IDE.
+
+
+  ── C. RP2040-Zero ───────────────────────────────────────────
+
+  Sketch: arduino/shoulder_surfer_rp2040/shoulder_surfer_rp2040/shoulder_surfer_rp2040.ino
+
+  Board setup (one-time):
+    File → Preferences → Additional Boards Manager URLs
+    Add: https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+    Tools → Board → Boards Manager → search "Raspberry Pi Pico/RP2040 by Earle Philhower" → Install
+
+  Board settings:
+    Tools → Board     → Waveshare RP2040 Zero
+    Tools → USB Stack → Pico SDK
+    Tools → Port      → (COM port shown in Device Manager)
+
+  See docs/wiring-rp2040-zero.svg for wiring.
+
+  Upload: Click the → arrow button in Arduino IDE.
+  If the port does not appear, hold BOOT, tap RESET, release BOOT
+  to force UF2 bootloader mode, then click Upload.
 
 
 ────────────────────────────────────────────────────────────────
@@ -71,9 +116,46 @@ macOS — produces .dmg (Intel + Apple Silicon) in dist/:
   npm run build-mac
 
 Output files:
-  dist/Shoulder Guardian Setup 1.4.0.exe   ← installer (recommended)
-  dist/Shoulder Guardian 1.4.0.exe         ← portable (no install needed)
-  dist/Shoulder Guardian-1.4.0.dmg         ← macOS disk image
+  dist/Shoulder Guardian Setup x.y.z.exe   ← installer (recommended)
+  dist/Shoulder Guardian x.y.z.exe         ← portable (no install needed)
+  dist/Shoulder Guardian-x.y.z.dmg         ← macOS disk image
+
+
+────────────────────────────────────────────────────────────────
+  PART 4 — PUBLISH A GITHUB RELEASE
+────────────────────────────────────────────────────────────────
+
+The release script builds the app, creates a git tag, and uploads
+the installer(s) to GitHub Releases in one command.
+
+Requirements:
+  - GitHub CLI installed and authenticated
+      winget install GitHub.cli        (Windows)
+      brew install gh                  (macOS)
+      gh auth login                    (one-time sign-in)
+
+Steps:
+
+  1. Bump the version in package.json:
+       "version": "1.5.0"
+
+  2. Run the release script:
+       npm run release
+
+     Or with custom release notes:
+       npm run release -- --notes "Fixed display init on ESP32-C3"
+
+     Dry-run (build only, no git tag or GitHub upload):
+       npm run release:dry
+
+  What the script does automatically:
+    - Commits any uncommitted changes
+    - Creates and pushes a git tag (e.g. v1.5.0)
+    - Runs npm run build-win or build-mac (based on current platform)
+    - Creates a GitHub Release and uploads the .exe / .dmg files
+
+  After the script finishes, the release appears at:
+    https://github.com/JoeAWagner/shoulder-guardian/releases
 
 
 ────────────────────────────────────────────────────────────────
@@ -92,7 +174,7 @@ App can't find serial port:
 
 No targets detected:
   - The LD2450 detects MOVING targets — wave your hand to confirm
-  - Check LD2450 VCC reads ~5V (use RAW pin on Pro Micro, not VCC)
+  - Check LD2450 VCC reads ~5V
   - Serial1 baud rate must be 250000 in the sketch
 
 App opens but immediately closes to tray:
