@@ -307,6 +307,28 @@ input[type="range"] { width: 100%; accent-color: var(--blue); cursor: pointer; h
 .log-warn    { color: #d29922; }
 .log-muted   { color: var(--muted); }
 
+/* ── Mini mode ───────────────────────────────────────────────── */
+.mini-btn { font-size: 15px; }
+body.mini .conn-strip,
+body.mini .settings-card,
+body.mini .log-card  { display: none; }
+
+body.mini .app {
+  gap: 0;
+  padding: 0;
+}
+
+body.mini .radar-card {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  border-top: 1px solid var(--border2);
+  padding: 10px 12px 8px;
+}
+
+body.mini #miniBtn { color: var(--blue); }
+
 /* ── Animations ──────────────────────────────────────────────── */
 @keyframes trigger-flash {
   0%, 100% { background: var(--card); border-color: var(--border); }

@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('arduino', {
   setStartOnLogin:     (v)      => ipcRenderer.invoke('set-start-on-login', v),
   getStartOnLogin:     ()       => ipcRenderer.invoke('get-start-on-login'),
   getPrefs:            ()       => ipcRenderer.invoke('get-prefs'),
+  setMiniMode:         (v)      => ipcRenderer.invoke('set-mini-mode', v),
   openLogFile:         ()       => ipcRenderer.invoke('open-log-file'),
   getLogPath:          ()       => ipcRenderer.invoke('get-log-path'),
 

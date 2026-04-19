@@ -23,6 +23,7 @@ let lockEnabled     = false;  // synced from Arduino STATUS
 let triggerAction   = 'minimize';  // 'minimize' | 'lock'
 let closeToTray     = true;        // false = quit on window close
 let alwaysOnTop     = false;       // window floats above all others
+let miniMode        = false;       // compact radar-only view
 let prefsPath       = null;        // set in loadPrefs()
 let threatFrames    = 0;      // consecutive frames with count >= 2
 let threatThreshold = 4;      // frames needed before triggering (user-configurable)
@@ -37,6 +38,7 @@ function loadPrefs() {
       const data = JSON.parse(fs.readFileSync(prefsPath, 'utf8'));
       if (typeof data.alwaysOnTop     === 'boolean') alwaysOnTop     = data.alwaysOnTop;
       if (typeof data.closeToTray     === 'boolean') closeToTray     = data.closeToTray;
+      if (typeof data.miniMode        === 'boolean') miniMode        = data.miniMode;
       if (data.triggerAction === 'minimize' || data.triggerAction === 'lock')
         triggerAction = data.triggerAction;
       if (typeof data.threatThreshold === 'number')
@@ -49,7 +51,7 @@ function savePrefs() {
   try {
     if (!prefsPath) return;
     fs.writeFileSync(prefsPath, JSON.stringify(
-      { alwaysOnTop, closeToTray, triggerAction, threatThreshold }, null, 2
+      { alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold }, null, 2
     ), 'utf8');
   } catch (_) {}
 }
@@ -136,6 +138,10 @@ function createWindow() {
   });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   if (alwaysOnTop) mainWindow.setAlwaysOnTop(true);
+  if (miniMode) {
+    mainWindow.setSize(500, 360);
+    mainWindow.setResizable(false);
+  }
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.on('close', (e) => {
     if (!app.isQuitting) {
@@ -223,7 +229,18 @@ ipcMain.handle('set-start-on-login',   (_, v)      => {
 ipcMain.handle('get-start-on-login',   ()          => {
   return app.getLoginItemSettings().openAtLogin;
 });
-ipcMain.handle('get-prefs', () => ({ alwaysOnTop, closeToTray, triggerAction, threatThreshold }));
+ipcMain.handle('get-prefs', () => ({ alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold }));
+ipcMain.handle('set-mini-mode', (_, mini) => {
+  miniMode = Boolean(mini);
+  if (miniMode) {
+    mainWindow.setSize(500, 360);
+    mainWindow.setResizable(false);
+  } else {
+    mainWindow.setSize(500, 820);
+    mainWindow.setResizable(true);
+  }
+  savePrefs();
+});
 ipcMain.handle('window-minimize', () => mainWindow.minimize());
 ipcMain.handle('window-close', () => {
   if (closeToTray) {

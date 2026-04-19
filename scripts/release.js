@@ -126,7 +126,7 @@ step('Finding build artifacts');
 const distDir = path.join(ROOT, 'dist');
 const exts    = platform === 'darwin' ? ['.dmg'] : ['.exe'];
 const files   = fs.readdirSync(distDir)
-  .filter(f => exts.some(e => f.endsWith(e)) && !f.startsWith('.'))
+  .filter(f => exts.some(e => f.endsWith(e)) && !f.startsWith('.') && f.includes(VERSION))
   .map(f => path.join(distDir, f));
 
 if (!files.length) {

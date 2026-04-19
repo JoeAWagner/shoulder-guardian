@@ -39,6 +39,7 @@ const advancedBody    = document.getElementById('advancedBody');
 const advancedChevron = document.getElementById('advancedChevron');
 const minimizeBtn     = document.getElementById('minimizeBtn');
 const closeBtn        = document.getElementById('closeBtn');
+const miniBtn         = document.getElementById('miniBtn');
 
 const ctx = radarCanvas.getContext('2d');
 const W   = radarCanvas.width;
@@ -96,10 +97,11 @@ startOnLoginToggle.addEventListener('change', () => {
 // Sync start-on-login state from OS on load
 window.arduino.getStartOnLogin().then(v => { startOnLoginToggle.checked = v; });
 
-// Restore persisted settings (alwaysOnTop, closeToTray, triggerAction, threatThreshold)
+// Restore persisted settings (alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold)
 window.arduino.getPrefs().then(prefs => {
   alwaysOnTopToggle.checked  = prefs.alwaysOnTop;
   exitOnCloseToggle.checked  = !prefs.closeToTray;
+  if (prefs.miniMode) applyMiniMode(true);
   const isLock = prefs.triggerAction === 'lock';
   actionMinimize.classList.toggle('active', !isLock);
   actionLock.classList.toggle('active',      isLock);
@@ -118,6 +120,19 @@ advancedToggle.addEventListener('click', () => {
 // ── Titlebar ──────────────────────────────────────────────────
 minimizeBtn.addEventListener('click', () => window.arduino.windowMinimize());
 closeBtn.addEventListener('click',    () => window.arduino.windowClose());
+
+// ── Mini mode toggle ──────────────────────────────────────────
+function applyMiniMode(mini) {
+  document.body.classList.toggle('mini', mini);
+  miniBtn.textContent = mini ? '⊞' : '⊡';
+  miniBtn.title       = mini ? 'Expand' : 'Mini mode';
+}
+
+miniBtn.addEventListener('click', () => {
+  const mini = !document.body.classList.contains('mini');
+  applyMiniMode(mini);
+  window.arduino.setMiniMode(mini);
+});
 
 // ── Ports ─────────────────────────────────────────────────────
 async function refreshPorts() {
