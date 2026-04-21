@@ -22,8 +22,21 @@ const envPath = path.join(__dirname, '..', '.env');
 if (fs.existsSync(envPath)) {
   fs.readFileSync(envPath, 'utf8').split(/\r?\n/).forEach(line => {
     const m = line.match(/^\s*([\w_]+)\s*=\s*(.+?)\s*$/);
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    // Always override — .env is the source of truth; stale system env vars must not win
+    if (m) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
   });
+}
+
+// Ensure az CLI is in PATH so the dlib's DefaultAzureCredential can run
+// `az account get-access-token` when signtool loads the dlib as a subprocess
+const azCliPaths = [
+  'C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin',
+  'C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin',
+];
+for (const p of azCliPaths) {
+  if (fs.existsSync(p) && !(process.env.PATH || '').includes(p)) {
+    process.env.PATH = p + ';' + (process.env.PATH || '');
+  }
 }
 
 // Find signtool.exe in the Windows SDK — it's not on PATH by default
@@ -43,27 +56,9 @@ function findSigntool() {
 
 // Run signtool and capture combined output — returns { ok, output, code }
 function runSigntool(signtool, args) {
-  const result = spawnSync(signtool, args, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+  const result = spawnSync(signtool, args, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024, env: process.env });
   const output = (result.stdout || '') + (result.stderr || '');
   return { ok: result.status === 0, output, code: result.status };
-}
-
-// Parse cert blocks from signtool verbose output into an array of objects
-function parseCerts(output) {
-  const certs = [];
-  let current = null;
-  for (const raw of output.split(/\r?\n/)) {
-    const line = raw.trim();
-    const m = (re) => line.match(re);
-    if (m(/^Issued to:/))  { current = { issuedTo: line.replace(/^Issued to:\s*/, '') }; }
-    else if (current && m(/^Issued by:/))  { current.issuedBy  = line.replace(/^Issued by:\s*/, ''); }
-    else if (current && m(/^SHA1 hash:/))  {
-      current.sha1 = line.replace(/^SHA1 hash:\s*/, '');
-      certs.push(current);
-      current = null;
-    }
-  }
-  return certs;
 }
 
 exports.default = async function sign(configuration) {
@@ -100,6 +95,8 @@ exports.default = async function sign(configuration) {
     CertificateProfileName: profile,
   }, null, 2));
 
+  // AuthenticodeDigestSignEx (exported by the fully-loaded dlib) handles cert
+  // selection and signing entirely — no /sha1 or /a flags allowed or needed.
   const baseArgs = [
     'sign',
     '/dlib', dlib,
@@ -114,49 +111,6 @@ exports.default = async function sign(configuration) {
   try {
     console.log(`[sign] Signing ${path.basename(filePath)}…`);
     let result = runSigntool(signtool, baseArgs);
-
-    // If signtool found multiple certs (e.g. Adobe certs on the machine),
-    // parse the output to find the Trusted Signing cert and retry with /sha1
-    if (!result.ok && result.output.includes('Multiple certificates were found')) {
-      console.warn('[sign] Multiple certs found — identifying Trusted Signing cert…');
-      const certs = parseCerts(result.output);
-
-      // First try: find by known Trusted Signing subject name
-      let trusted = certs.find(c =>
-        c.issuedTo?.toLowerCase().includes('wagner cybersecurity')
-      );
-
-      // Fallback: skip Adobe and stale local certs, take whatever's left
-      if (!trusted) {
-        const skipPatterns = [
-          'adobe',
-          '997e4620-0e86-429c-b5f3-6a45cbba48ee',
-        ];
-        const isSkipped = (c) => skipPatterns.some(p =>
-          c.issuedTo?.toLowerCase().includes(p) ||
-          c.issuedBy?.toLowerCase().includes(p)
-        );
-        trusted = certs.find(c => !isSkipped(c));
-      }
-
-      if (trusted) {
-        console.log(`[sign] Retrying with Trusted Signing cert SHA1: ${trusted.sha1}`);
-        const retryArgs = [
-          'sign',
-          '/dlib', dlib,
-          '/dmdf', metaPath,
-          '/fd',   'SHA256',
-          '/tr',   'http://timestamp.acs.microsoft.com',
-          '/td',   'SHA256',
-          '/sha1', trusted.sha1,
-          '/v',
-          filePath,
-        ];
-        result = runSigntool(signtool, retryArgs);
-      } else {
-        console.error('[sign] Could not identify Trusted Signing cert in:\n', result.output);
-      }
-    }
 
     // Print output regardless
     if (result.output) process.stdout.write(result.output);
