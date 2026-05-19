@@ -178,7 +178,7 @@
           </div>
 
           <!-- Row B4: Max Depth + Detection Width -->
-          <div class="settings-row" style="margin-bottom:0">
+          <div class="settings-row">
             <div class="slider-group">
               <div class="slider-labels">
                 <span>Max Depth</span>
@@ -194,6 +194,22 @@
               </div>
               <input type="range" id="maxXSlider" min="200" max="3000" step="100" value="2000">
               <div class="slider-hint">Lateral detection range</div>
+            </div>
+          </div>
+
+          <!-- Row B5: Weather ZIP code -->
+          <div class="settings-row" style="margin-bottom:0">
+            <div class="slider-group" style="flex:1">
+              <div class="slider-labels">
+                <span>Weather ZIP Code</span>
+                <span class="slider-val" id="weatherZipStatus"></span>
+              </div>
+              <input type="text" id="weatherZipInput" maxlength="5"
+                     inputmode="numeric" placeholder="Auto (IP-based)"
+                     style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;
+                            border-radius:6px;padding:7px 9px;font-size:13px;width:100%;
+                            box-sizing:border-box;outline:none;">
+              <div class="slider-hint">5-digit US ZIP for the round display's weather widget — blank = auto-detect</div>
             </div>
           </div>
 

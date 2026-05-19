@@ -27,6 +27,7 @@ let triggerAction   = 'minimize';  // 'minimize' | 'lock'
 let closeToTray     = true;        // false = quit on window close
 let alwaysOnTop     = false;       // window floats above all others
 let miniMode        = false;       // compact radar-only view
+let weatherZip      = '';          // US ZIP for weather; blank = IP auto-detect
 let prefsPath       = null;        // set in loadPrefs()
 let threatFrames    = 0;      // consecutive frames with count >= 2
 let threatThreshold = 4;      // frames needed before triggering (user-configurable)
@@ -46,6 +47,7 @@ function loadPrefs() {
         triggerAction = data.triggerAction;
       if (typeof data.threatThreshold === 'number')
         threatThreshold = Math.max(1, Math.min(5, data.threatThreshold));
+      if (typeof data.weatherZip === 'string') weatherZip = data.weatherZip;
     }
   } catch (_) {}
 }
@@ -54,7 +56,7 @@ function savePrefs() {
   try {
     if (!prefsPath) return;
     fs.writeFileSync(prefsPath, JSON.stringify(
-      { alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold }, null, 2
+      { alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold, weatherZip }, null, 2
     ), 'utf8');
   } catch (_) {}
 }
@@ -308,7 +310,7 @@ ipcMain.handle('set-start-on-login',   (_, v)      => {
 ipcMain.handle('get-start-on-login',   ()          => {
   return app.getLoginItemSettings().openAtLogin;
 });
-ipcMain.handle('get-prefs', () => ({ alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold }));
+ipcMain.handle('get-prefs', () => ({ alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold, weatherZip }));
 ipcMain.handle('set-mini-mode', (_, mini) => {
   miniMode = Boolean(mini);
   if (miniMode) {
@@ -442,6 +444,7 @@ ipcMain.handle('connect', async (event, portPath) => {
       logToFile(msg);
 
       // Start pushing weather to the round display every 15 min
+      weather.setZip(weatherZip);
       weather.startWeatherSync(
         (cmd) => { if (port?.isOpen) port.write(cmd + '\n'); },
         (m)   => { const line = `[${ts()}] ${m}`; logToFile(line); mainWindow?.webContents.send('log', line); }
@@ -481,6 +484,18 @@ ipcMain.handle('send-command', (event, cmd) => {
 
 // ── IPC: Force-refresh weather ────────────────────────────────
 ipcMain.handle('refresh-weather', () => {
+  weather.forceRefresh(
+    (cmd) => { if (port?.isOpen) port.write(cmd + '\n'); },
+    (m)   => { const line = `[${ts()}] ${m}`; logToFile(line); mainWindow?.webContents.send('log', line); }
+  );
+});
+
+// ── IPC: Set weather ZIP code ─────────────────────────────────
+ipcMain.handle('set-weather-zip', (_, zip) => {
+  weatherZip = String(zip || '').trim();
+  savePrefs();
+  weather.setZip(weatherZip);
+  // Re-fetch right away so the display reflects the new location
   weather.forceRefresh(
     (cmd) => { if (port?.isOpen) port.write(cmd + '\n'); },
     (m)   => { const line = `[${ts()}] ${m}`; logToFile(line); mainWindow?.webContents.send('log', line); }

@@ -100,13 +100,16 @@ int16_t       touch_last_x   = 0;
 int16_t       touch_last_y   = 0;
 
 // ── Weather widget — pushed by the Electron app ──────────────
-//   Command: SET WEATHER <code>,<tempString>
+//   Command: SET WEATHER <code>,<temp>,<unit>
 //     code: 0 sunny, 1 partly cloudy, 2 cloudy, 3 rain, 4 snow,
 //           5 thunder, 6 fog, 7 clear night, 8 cloudy night
-//   e.g. SET WEATHER 0,72°F
-uint8_t  weatherCode      = 0;
-char     weatherTempStr[10] = "";
-bool     weatherSet       = false;
+//     temp: digits only (no degree symbol — that's drawn by the firmware)
+//     unit: single char, 'F' or 'C'
+//   e.g. SET WEATHER 0,72,F
+uint8_t  weatherCode        = 0;
+char     weatherTempStr[8]  = "";   // digits only, e.g. "72"
+char     weatherUnit        = 'F';
+bool     weatherSet         = false;
 
 // ── LovyanGFX panel — GC9A01 240×240 IPS, no touch (manual via Wire) ─
 class LGFX : public lgfx::LGFX_Device {
@@ -417,17 +420,22 @@ void processCommand(const char* cmd) {
     enabled = false; EEPROM.put(ADDR_ENABLED, (uint8_t)0); EEPROM.commit();
     Serial.println("OK:DISABLED");
   } else if (strncmp(cmd, "SET WEATHER ", 12) == 0) {
-    // Format: SET WEATHER <code>,<tempString>     e.g. SET WEATHER 0,72°F
-    const char *p = cmd + 12;
-    int code = atoi(p);
-    const char *comma = strchr(p, ',');
-    if (comma && code >= 0 && code <= 8) {
+    // Format: SET WEATHER <code>,<temp>,<unit>    e.g. SET WEATHER 0,72,F
+    const char *p  = cmd + 12;
+    int code       = atoi(p);
+    const char *c1 = strchr(p, ',');               // after code
+    if (c1 && code >= 0 && code <= 8) {
+      const char *tempPart = c1 + 1;
+      const char *c2 = strchr(tempPart, ',');       // after temp
+      int n = c2 ? (int)(c2 - tempPart) : (int)strlen(tempPart);
+      if (n > (int)sizeof(weatherTempStr) - 1) n = sizeof(weatherTempStr) - 1;
+      strncpy(weatherTempStr, tempPart, n);
+      weatherTempStr[n] = '\0';
       weatherCode = (uint8_t)code;
-      strncpy(weatherTempStr, comma + 1, sizeof(weatherTempStr) - 1);
-      weatherTempStr[sizeof(weatherTempStr) - 1] = '\0';
-      weatherSet = true;
+      weatherUnit = (c2 && c2[1]) ? c2[1] : 'F';    // default F if unit omitted
+      weatherSet  = true;
       Serial.print("OK:WEATHER ");
-      Serial.print(code); Serial.print(","); Serial.println(weatherTempStr);
+      Serial.print(weatherTempStr); Serial.println(weatherUnit);
     }
   }
 }
@@ -615,14 +623,19 @@ void drawRadar() {
 
   // Weather widget — icon on the left, temperature on the right.
   // Only drawn once the Electron app pushes a `SET WEATHER` command.
+  // The degree symbol is drawn as a small circle (the font has no °).
   if (weatherSet) {
     drawWeatherIcon(g, 30, 82, weatherCode);
     g->setTextColor(C_TEXT);
     g->setTextSize(2);
-    // Right-align so longer strings like "100°F" still fit
-    int tlen = (int)strlen(weatherTempStr);
-    g->setCursor(218 - tlen * 12, 74);
-    g->print(weatherTempStr);
+    int numW   = (int)strlen(weatherTempStr) * 12;  // size-2 chars are 12 px
+    int totalW = numW + 7 /*degree*/ + 12 /*unit char*/;
+    int startX = 224 - totalW;                       // right-aligned
+    g->setCursor(startX, 74);
+    g->print(weatherTempStr);                        // e.g. "72"
+    g->drawCircle(startX + numW + 3, 77, 2, C_TEXT); // ° degree symbol
+    g->setCursor(startX + numW + 8, 74);
+    g->print(weatherUnit);                           // 'F' or 'C'
   }
 
   // Target dots — smoothed positions, colour from the palette above.

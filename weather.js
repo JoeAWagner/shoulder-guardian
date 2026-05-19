@@ -16,11 +16,40 @@ const REFRESH_MS = 15 * 60 * 1000;
 
 let timer        = null;
 let cachedLatLon = null;          // cached after first successful geo lookup
+let currentZip   = '';            // user-set ZIP; empty = IP-based auto-detect
 
-// ── IP geolocation ────────────────────────────────────────────
+// Set / change the ZIP code used for weather.  Empty string reverts to
+// IP-based auto-detect.  Clears the location cache so the next lookup
+// re-geocodes.
+function setZip(zip) {
+  const z = String(zip || '').trim();
+  if (z !== currentZip) {
+    currentZip   = z;
+    cachedLatLon = null;
+  }
+}
+
+// ── Location lookup — ZIP if set, otherwise IP geolocation ────
 async function getLocation() {
   if (cachedLatLon) return cachedLatLon;
-  // ip-api.com free tier is HTTP-only; HTTPS requires their paid plan
+
+  // Preferred: user-configured US ZIP code via Zippopotam (free, HTTPS, no key)
+  if (currentZip) {
+    const r = await fetch(`https://api.zippopotam.us/us/${encodeURIComponent(currentZip)}`);
+    if (r.status === 404) throw new Error(`ZIP "${currentZip}" not found`);
+    if (!r.ok) throw new Error(`ZIP lookup HTTP ${r.status}`);
+    const data  = await r.json();
+    const place = data.places && data.places[0];
+    if (!place) throw new Error(`ZIP "${currentZip}" returned no location`);
+    cachedLatLon = {
+      lat:  parseFloat(place.latitude),
+      lon:  parseFloat(place.longitude),
+      city: place['place name'] || currentZip,
+    };
+    return cachedLatLon;
+  }
+
+  // Fallback: IP geolocation (ip-api.com — free, no key, HTTP-only on free tier)
   const r = await fetch('http://ip-api.com/json/?fields=status,message,lat,lon,city,country');
   if (!r.ok) throw new Error(`geo HTTP ${r.status}`);
   const data = await r.json();
@@ -68,8 +97,10 @@ async function pushWeatherOnce(sendCmd, log) {
     const loc  = await getLocation();
     const w    = await getWeather(loc.lat, loc.lon);
     const icon = mapWmoToIcon(w.code, w.isDay);
-    sendCmd(`SET WEATHER ${icon},${w.tempF}°F`);
-    log && log(`Weather pushed: ${w.tempF}°F, icon ${icon} (WMO ${w.code}) for ${loc.city}`);
+    // Send plain ASCII — temp digits and unit letter separately.
+    // The firmware draws the ° degree symbol itself (the LCD font has none).
+    sendCmd(`SET WEATHER ${icon},${w.tempF},F`);
+    log && log(`Weather pushed: ${w.tempF}F, icon ${icon} (WMO ${w.code}) for ${loc.city}`);
   } catch (err) {
     log && log(`Weather fetch failed: ${err.message}`);
   }
@@ -92,4 +123,4 @@ function forceRefresh(sendCmd, log) {
   return pushWeatherOnce(sendCmd, log);
 }
 
-module.exports = { startWeatherSync, stopWeatherSync, forceRefresh };
+module.exports = { startWeatherSync, stopWeatherSync, forceRefresh, setZip };

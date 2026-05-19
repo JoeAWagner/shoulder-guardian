@@ -37,6 +37,8 @@ const smoothVal       = document.getElementById('smoothVal');
 const advancedToggle  = document.getElementById('advancedToggle');
 const advancedBody    = document.getElementById('advancedBody');
 const advancedChevron = document.getElementById('advancedChevron');
+const weatherZipInput = document.getElementById('weatherZipInput');
+const weatherZipStatus = document.getElementById('weatherZipStatus');
 const minimizeBtn     = document.getElementById('minimizeBtn');
 const closeBtn        = document.getElementById('closeBtn');
 const miniBtn         = document.getElementById('miniBtn');
@@ -109,6 +111,31 @@ window.arduino.getPrefs().then(prefs => {
     pollingSlider.value    = prefs.threatThreshold;
     pollingVal.textContent = prefs.threatThreshold + ' frames';
   }
+  if (typeof prefs.weatherZip === 'string') {
+    weatherZipInput.value = prefs.weatherZip;
+  }
+});
+
+// ── Weather ZIP code ──────────────────────────────────────────
+// Strip non-digits as the user types; commit on Enter or blur.
+weatherZipInput.addEventListener('input', () => {
+  weatherZipInput.value = weatherZipInput.value.replace(/\D/g, '').slice(0, 5);
+});
+
+function commitWeatherZip() {
+  const zip = weatherZipInput.value.trim();
+  if (zip.length !== 0 && zip.length !== 5) {
+    weatherZipStatus.textContent = 'need 5 digits';
+    return;
+  }
+  weatherZipStatus.textContent = '';
+  window.arduino.setWeatherZip(zip);
+  addLog(`[${ts()}] Weather location set to ${zip || 'auto-detect'}`, 'ok');
+}
+
+weatherZipInput.addEventListener('blur', commitWeatherZip);
+weatherZipInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { weatherZipInput.blur(); }
 });
 
 // ── Advanced section toggle ───────────────────────────────────
