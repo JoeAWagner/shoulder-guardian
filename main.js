@@ -191,8 +191,8 @@ function flashTrayRed() {
 // ── Window ───────────────────────────────────────────────────
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 500, height: 820,
-    minWidth: 500, minHeight: 600,
+    width: 720, height: 800,
+    minWidth: 720, minHeight: 560,
     resizable: true,
     frame: false,
     show: false,

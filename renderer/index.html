@@ -67,19 +67,15 @@
         <button id="applyBtn">Apply</button>
       </div>
 
-      <!-- Row 0: Threat action -->
+      <!-- Main settings — 3 columns -->
       <div class="settings-row">
-        <div class="slider-group" style="flex:1">
+        <div class="slider-group">
           <div class="slider-labels"><span>On Threat Detected</span></div>
           <div class="segment-control">
             <button class="seg-btn active" id="actionMinimize">Show Desktop</button>
             <button class="seg-btn" id="actionLock">Lock Screen</button>
           </div>
         </div>
-      </div>
-
-      <!-- Row 1: Lock toggle + lock delay -->
-      <div class="settings-row">
         <div class="setting-toggle-group">
           <label class="pill-toggle">
             <input type="checkbox" id="lockEnToggle">
@@ -87,7 +83,7 @@
           </label>
           <div class="toggle-info">
             <span class="toggle-label">Lock on empty</span>
-            <span class="toggle-hint">Lock screen when nobody detected</span>
+            <span class="toggle-hint">Lock when area is empty</span>
           </div>
         </div>
         <div class="slider-group">
@@ -96,6 +92,7 @@
             <span class="slider-val" id="lockDlyVal">30 s</span>
           </div>
           <input type="range" id="lockDlySlider" min="5" max="120" step="5" value="30">
+          <div class="slider-hint">Delay before locking</div>
         </div>
       </div>
 
@@ -107,7 +104,7 @@
         </button>
         <div class="advanced-body" id="advancedBody">
 
-          <!-- Row A: Polling + Smoothing -->
+          <!-- Adv Row 1: Polling + Smoothing + Cooldown -->
           <div class="settings-row">
             <div class="slider-group">
               <div class="slider-labels">
@@ -115,7 +112,7 @@
                 <span class="slider-val" id="pollingVal">4 frames</span>
               </div>
               <input type="range" id="pollingSlider" min="1" max="5" step="1" value="4">
-              <div class="slider-hint">Consecutive frames needed to trigger</div>
+              <div class="slider-hint">Frames needed to trigger</div>
             </div>
             <div class="slider-group">
               <div class="slider-labels">
@@ -123,12 +120,8 @@
                 <span class="slider-val" id="smoothVal">35%</span>
               </div>
               <input type="range" id="smoothSlider" min="10" max="90" step="5" value="35">
-              <div class="slider-hint">Low = smoother, high = faster response</div>
+              <div class="slider-hint">Low = smoother</div>
             </div>
-          </div>
-
-          <!-- Row A2: Cooldown -->
-          <div class="settings-row">
             <div class="slider-group">
               <div class="slider-labels">
                 <span>Cooldown</span>
@@ -139,7 +132,7 @@
             </div>
           </div>
 
-          <!-- Row B2: Exit on close + Always on top -->
+          <!-- Adv Row 2: Exit on close + Always on top + Start on login -->
           <div class="settings-row">
             <div class="setting-toggle-group">
               <label class="pill-toggle">
@@ -148,7 +141,7 @@
               </label>
               <div class="toggle-info">
                 <span class="toggle-label">Exit on close</span>
-                <span class="toggle-hint">Quit instead of hiding to tray</span>
+                <span class="toggle-hint">Quit instead of tray</span>
               </div>
             </div>
             <div class="setting-toggle-group">
@@ -158,34 +151,30 @@
               </label>
               <div class="toggle-info">
                 <span class="toggle-label">Always on top</span>
-                <span class="toggle-hint">Window floats above all others</span>
+                <span class="toggle-hint">Float above windows</span>
               </div>
             </div>
-          </div>
-
-          <!-- Row B3: Start on login -->
-          <div class="settings-row">
-            <div class="setting-toggle-group" style="flex:1">
+            <div class="setting-toggle-group">
               <label class="pill-toggle">
                 <input type="checkbox" id="startOnLoginToggle">
                 <span class="pill-track"><span class="pill-thumb"></span></span>
               </label>
               <div class="toggle-info">
                 <span class="toggle-label">Start on login</span>
-                <span class="toggle-hint">Launch automatically when you log in</span>
+                <span class="toggle-hint">Launch at startup</span>
               </div>
             </div>
           </div>
 
-          <!-- Row B4: Max Depth + Detection Width -->
-          <div class="settings-row">
+          <!-- Adv Row 3: Max Depth + Width + Weather ZIP -->
+          <div class="settings-row" style="margin-bottom:0">
             <div class="slider-group">
               <div class="slider-labels">
                 <span>Max Depth</span>
                 <span class="slider-val" id="maxRangeVal">2.0 m</span>
               </div>
               <input type="range" id="maxRangeSlider" min="500" max="5000" step="100" value="2000">
-              <div class="slider-hint">Ignore targets beyond this distance</div>
+              <div class="slider-hint">Ignore targets past this</div>
             </div>
             <div class="slider-group">
               <div class="slider-labels">
@@ -195,21 +184,17 @@
               <input type="range" id="maxXSlider" min="200" max="3000" step="100" value="2000">
               <div class="slider-hint">Lateral detection range</div>
             </div>
-          </div>
-
-          <!-- Row B5: Weather ZIP code -->
-          <div class="settings-row" style="margin-bottom:0">
-            <div class="slider-group" style="flex:1">
+            <div class="slider-group">
               <div class="slider-labels">
-                <span>Weather ZIP Code</span>
+                <span>Weather ZIP</span>
                 <span class="slider-val" id="weatherZipStatus"></span>
               </div>
               <input type="text" id="weatherZipInput" maxlength="5"
                      inputmode="numeric" placeholder="Auto (IP-based)"
                      style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;
-                            border-radius:6px;padding:7px 9px;font-size:13px;width:100%;
+                            border-radius:6px;padding:6px 9px;font-size:13px;width:100%;
                             box-sizing:border-box;outline:none;">
-              <div class="slider-hint">5-digit US ZIP for the round display's weather widget — blank = auto-detect</div>
+              <div class="slider-hint">US ZIP for round display</div>
             </div>
           </div>
 
