@@ -44,8 +44,22 @@ const closeBtn        = document.getElementById('closeBtn');
 const miniBtn         = document.getElementById('miniBtn');
 
 const ctx = radarCanvas.getContext('2d');
-const W   = radarCanvas.width;
-const H   = radarCanvas.height;
+
+// Radar canvas dimensions — recomputed whenever mini mode toggles.
+// Normal mode uses a large canvas to fill the 3-wide window; mini mode
+// uses the compact 444-wide size that fits the mini window.
+let W, H, SENSOR_X, SENSOR_Y, PLOT_R;
+
+function sizeRadarCanvas(mini) {
+  radarCanvas.width  = mini ? 444 : 664;
+  radarCanvas.height = mini ? 220 : 260;
+  W = radarCanvas.width;
+  H = radarCanvas.height;
+  SENSOR_X = W / 2;
+  SENSOR_Y = H - 8;
+  PLOT_R   = Math.min(W / 2 - 4, H - 14);   // max radar radius in pixels
+}
+sizeRadarCanvas(false);   // normal mode by default
 
 let connected           = false;
 let currentMaxRange     = 2000;
@@ -153,6 +167,8 @@ function applyMiniMode(mini) {
   document.body.classList.toggle('mini', mini);
   miniBtn.textContent = mini ? '⊞' : '⊡';
   miniBtn.title       = mini ? 'Expand' : 'Mini mode';
+  sizeRadarCanvas(mini);
+  drawRadar([], currentMaxRange, currentMaxX);
 }
 
 miniBtn.addEventListener('click', () => {
@@ -357,10 +373,6 @@ function updateTargetList(targets) {
 }
 
 // ── Radar canvas ──────────────────────────────────────────────
-const SENSOR_X   = W / 2;
-const SENSOR_Y   = H - 8;
-const PLOT_R     = Math.min(W / 2 - 4, H - 14);  // max radius in pixels
-
 function drawRadar(targets, maxRangeMm, maxXMm = 1000) {
   ctx.clearRect(0, 0, W, H);
 

@@ -201,7 +201,7 @@ void setup() {
 
   Serial.println("[SG] init display...");
   tft.init();
-  tft.setRotation(2);   // USB connector on the right side of the device
+  //tft.setRotation(2);   // USB connector on the right side of the device
   tft.fillScreen(C_BG);
 
   fb.setColorDepth(16);
