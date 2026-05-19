@@ -24,8 +24,15 @@
 //    GC9A01 SDA  → GPIO 1  (SW-SPI MOSI)
 //    GC9A01 CS   → GPIO 10 (TFT_CS)
 //    GC9A01 DC   → GPIO 3  (TFT_DC)
-//    GC9A01 RST  → GPIO 8  (TFT_RST — hardware reset pulse)
+//    GC9A01 RST  → GPIO 8  (TFT_RST — shares with onboard LED)
 //    GC9A01 BLK  → not present on this module (backlight always on)
+//
+//  ⚠ GPIO 8 NOTE: GPIO 8 is both the onboard LED (active-LOW) and
+//    TFT_RST.  Pulling GPIO 8 LOW resets the display, so the LED is
+//    disabled in firmware after display init.  The display itself
+//    provides all status info (green = target, red = threat).
+//    To re-enable the LED, move the RST wire to GPIO 2 and change
+//    TFT_RST to 2 below.
 //
 //  ── Arduino IDE setup ────────────────────────────────────────
 //    Board Manager : "esp32" by Espressif Systems
@@ -50,7 +57,7 @@
 #define TFT_MOSI      1    // GPIO 1  (SDA)
 #define TFT_CS       10    // GPIO 10 (CS)
 #define TFT_DC        3    // GPIO 3  (DC)
-#define TFT_RST       8    // GPIO 8  (RST) — wire RST pin to GPIO 8, NOT 3.3V
+#define TFT_RST       8    // GPIO 8  (RST) — shared with onboard LED; LED disabled in fw
 // BLK not present on this module — backlight is always on
 
 // ── EEPROM ────────────────────────────────────────────────────
@@ -106,24 +113,31 @@ const unsigned long STATUS_WATCHDOG_MS = 150;
 #define DOT_R        6    // target dot radius in pixels
 
 // ── GFX objects ───────────────────────────────────────────────
-Arduino_DataBus *bus   = new Arduino_SWSPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI);
-Arduino_GFX    *panel  = new Arduino_GC9A01(bus, TFT_RST, 0, false);
+// Hardware SPI via ESP32 GPIO matrix — much more reliable than SWSPI on C3.
+// RST is pulsed manually in initDisplay() — pass GFX_NOT_DEFINED so
+// the library never touches GPIO 8 again after we release it.
+Arduino_DataBus *bus   = new Arduino_ESP32SPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI, GFX_NOT_DEFINED, FSPI);
+Arduino_GFX    *panel  = new Arduino_GC9A01(bus, GFX_NOT_DEFINED, 0, true /*IPS*/);
 
 // ─────────────────────────────────────────────────────────────
 
 void setup() {
+  // GPIO 8 starts HIGH: LED off and RST released.
   pinMode(LED_PIN, OUTPUT);
-  ledWrite(false);
+  digitalWrite(LED_PIN, HIGH);
 
   Serial.begin(115200);
   delay(2000);  // give USB CDC time to enumerate before any prints
-  Serial.println("[SG] Shoulder Guardian starting...");
 
-  // Init display first — gives immediate visual feedback before the
-  // 4-second LD2450 config sequence runs
+  // Startup blink BEFORE display init — RST pulses here are harmless
+  // since the display hasn't been configured yet.
+  startupBlink();
+
+  Serial.println("[SG] Shoulder Guardian starting...");
   Serial.println("[SG] Init display...");
-  delay(3000); // let display power rail stabilise before sending SPI
   initDisplay();
+  // ⚠ After initDisplay(), GPIO 8 must stay HIGH (RST released).
+  //   Do NOT call ledWrite() or digitalWrite(LED_PIN, LOW) from here on.
 
   Serial1.begin(250000, SERIAL_8N1, LD_RX, LD_TX); // LD2450 binary frames
   EEPROM.begin(EEPROM_SIZE);
@@ -133,7 +147,6 @@ void setup() {
   Serial.println("[SG] Configuring LD2450...");
   configLD2450();
   Serial.println("[SG] Ready.");
-  startupBlink();
 }
 
 void loop() {
@@ -142,12 +155,8 @@ void loop() {
   readLD2450();   // non-blocking — sends STATUS on every new frame
   handleSerial(); // non-blocking — processes commands on newline
 
-  // LED: solid = targets present, slow blink = empty, fast blink = disabled
-  if (enabled) {
-    ledWrite(activeCount > 0 ? true : (now / 500) % 2 == 0);
-  } else {
-    ledWrite((now / 1000) % 2 == 0);
-  }
+  // LED is disabled — GPIO 8 is shared with TFT_RST and must stay HIGH.
+  // Display colour (green/red) provides the same at-a-glance status.
 
   // Watchdog STATUS — keeps app responsive if radar goes quiet
   if (now - statusTimer >= STATUS_WATCHDOG_MS) {
@@ -326,7 +335,10 @@ void ledWrite(bool on) {
 }
 
 void startupBlink() {
+  // Called BEFORE initDisplay() so RST pulses are harmless pre-init.
   for (int i = 0; i < 3; i++) { ledWrite(true); delay(100); ledWrite(false); delay(100); }
+  // Leave GPIO 8 HIGH (LED off, RST released) ready for display init.
+  digitalWrite(LED_PIN, HIGH);
 }
 
 // ── Display ───────────────────────────────────────────────────
@@ -342,69 +354,35 @@ void mmToPx(int16_t xMm, int16_t yMm, int16_t &px, int16_t &py) {
 struct PrevDot { int16_t px, py; bool active; };
 static PrevDot prevDots[3];
 
-// ── Bit-bang SPI using only digitalWrite — bypasses all libraries ─
-static void bbByte(uint8_t b) {
-  for (int i = 7; i >= 0; i--) {
-    digitalWrite(TFT_MOSI, (b >> i) & 1);
-    digitalWrite(TFT_SCK, HIGH);
-    digitalWrite(TFT_SCK, LOW);
-  }
-}
-static void bbCmd(uint8_t c) {
-  digitalWrite(TFT_DC, LOW);
-  digitalWrite(TFT_CS, LOW);
-  bbByte(c);
-  digitalWrite(TFT_CS, HIGH);
-}
-static void bbDat(uint8_t d) {
-  digitalWrite(TFT_DC, HIGH);
-  digitalWrite(TFT_CS, LOW);
-  bbByte(d);
-  digitalWrite(TFT_CS, HIGH);
-}
-
 void initDisplay() {
-  // ── Pure digitalWrite bit-bang test ──────────────────────────
-  pinMode(TFT_SCK,  OUTPUT); digitalWrite(TFT_SCK,  LOW);
-  pinMode(TFT_MOSI, OUTPUT); digitalWrite(TFT_MOSI, LOW);
-  pinMode(TFT_CS,   OUTPUT); digitalWrite(TFT_CS,   HIGH);
-  pinMode(TFT_DC,   OUTPUT); digitalWrite(TFT_DC,   HIGH);
-  pinMode(TFT_RST,  OUTPUT);
-
+  // Hardware RST on GPIO 8.  After this pulse, GPIO 8 stays HIGH forever
+  // (RST released = display alive).  The library was constructed with
+  // GFX_NOT_DEFINED for RST so it never touches GPIO 8 again.
+  pinMode(TFT_RST, OUTPUT);
   digitalWrite(TFT_RST, HIGH); delay(50);
-  digitalWrite(TFT_RST, LOW);  delay(100);
-  digitalWrite(TFT_RST, HIGH); delay(200);
-  Serial.println("[SG] bb RST done");
+  digitalWrite(TFT_RST, LOW);  delay(120);
+  digitalWrite(TFT_RST, HIGH); delay(150);
+  Serial.println("[SG] RST done");
 
-  bbCmd(0x01); delay(150);        // SWRESET
-  bbCmd(0x11); delay(150);        // SLPOUT
-  bbCmd(0x3A); bbDat(0x55);       // COLMOD 16-bit
-  bbCmd(0x36); bbDat(0x00);       // MADCTL
-  bbCmd(0x29); delay(50);         // DISPON
-  Serial.println("[SG] bb init done");
-
-  // Fill RED
-  bbCmd(0x2A); bbDat(0); bbDat(0); bbDat(0); bbDat(239);
-  bbCmd(0x2B); bbDat(0); bbDat(0); bbDat(0); bbDat(239);
-  bbCmd(0x2C);
-  digitalWrite(TFT_DC, HIGH);
-  digitalWrite(TFT_CS, LOW);
-  for (uint32_t i = 0; i < 240UL * 240UL; i++) {
-    bbByte(0xF8); bbByte(0x00);
+  // Hand off to Arduino_GFX for the full GC9A01 init sequence — it sends
+  // ~30 manufacturer-specific commands (power, gamma, timing) that a
+  // minimal SWRESET+SLPOUT+COLMOD bit-bang cannot replicate.
+  if (!panel->begin()) {
+    Serial.println("[SG] panel->begin() FAILED");
+    return;
   }
-  digitalWrite(TFT_CS, HIGH);
-  Serial.println("[SG] bb fill RED done");
-  delay(3000);
+  Serial.println("[SG] panel ready");
 
-  // ── Hand off to Arduino_GFX ──────────────────────────────────
-  if (panel->begin()) {
-    Serial.println("[SG] display ready");
-    panel->fillScreen(C_BG);
-    drawStaticElements();
-  } else {
-    Serial.println("[SG] display begin() failed");
-  }
+  // Quick visual confirmation: red→green→blue→black flash.  If you see
+  // each color cleanly, the panel is fully initialized and we can trust
+  // the radar drawing primitives.
+  panel->fillScreen(0xF800); delay(400);
+  panel->fillScreen(0x07E0); delay(400);
+  panel->fillScreen(0x001F); delay(400);
+  panel->fillScreen(C_BG);
+  drawStaticElements();
   memset(prevDots, 0, sizeof(prevDots));
+  Serial.println("[SG] static elements drawn");
 }
 
 void updateDisplay() {

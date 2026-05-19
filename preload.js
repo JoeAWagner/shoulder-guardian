@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('arduino', {
   installUpdate:    ()   => ipcRenderer.invoke('install-update'),
   onUpdateStatus:   (cb) => ipcRenderer.on('update-status', (_, d) => cb(d)),
 
+  // Weather
+  refreshWeather:   ()   => ipcRenderer.invoke('refresh-weather'),
+
   // Window controls
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowClose:    () => ipcRenderer.invoke('window-close'),

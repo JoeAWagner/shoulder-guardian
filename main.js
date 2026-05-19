@@ -5,6 +5,7 @@ const { exec } = require('child_process');
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
 const { autoUpdater } = require('electron-updater');
+const weather = require('./weather');
 
 let mainWindow;
 let tray;
@@ -439,6 +440,13 @@ ipcMain.handle('connect', async (event, portPath) => {
       rebuildTrayMenu();
       const msg = `[${ts()}] Connected to ${portPath}`;
       logToFile(msg);
+
+      // Start pushing weather to the round display every 15 min
+      weather.startWeatherSync(
+        (cmd) => { if (port?.isOpen) port.write(cmd + '\n'); },
+        (m)   => { const line = `[${ts()}] ${m}`; logToFile(line); mainWindow?.webContents.send('log', line); }
+      );
+
       resolve(true);
     });
     port.on('error', (err) => {
@@ -448,6 +456,7 @@ ipcMain.handle('connect', async (event, portPath) => {
     port.on('close', () => {
       isConnected = false;
       resetLockState();
+      weather.stopWeatherSync();
       tray.setImage(makeTrayIcon('#6e7681'));
       rebuildTrayMenu();
       logToFile(`[${ts()}] Disconnected from ${portPath}`);
@@ -468,6 +477,14 @@ ipcMain.handle('disconnect', () => {
 ipcMain.handle('send-command', (event, cmd) => {
   if (port?.isOpen) { port.write(cmd + '\n'); return true; }
   return false;
+});
+
+// ── IPC: Force-refresh weather ────────────────────────────────
+ipcMain.handle('refresh-weather', () => {
+  weather.forceRefresh(
+    (cmd) => { if (port?.isOpen) port.write(cmd + '\n'); },
+    (m)   => { const line = `[${ts()}] ${m}`; logToFile(line); mainWindow?.webContents.send('log', line); }
+  );
 });
 
 // ── OS actions ────────────────────────────────────────────────
