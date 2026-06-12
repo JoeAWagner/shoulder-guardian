@@ -474,13 +474,13 @@ function handleSerialLine(line) {
     rebuildTrayMenu();
   }
 
-  // Approach filter: only targets moving toward the sensor (negative
-  // LD2450 speed) or standing still count toward a threat — someone
-  // walking away behind you isn't shoulder-surfing.
-  // (If your LD2450 reports the opposite sign convention, flip <= to >=.)
+  // Approach filter: only targets moving toward the sensor or standing
+  // still count toward a threat — someone walking away behind you isn't
+  // shoulder-surfing.  LD2450 sign convention verified on real hardware:
+  // POSITIVE speed = approaching, negative = moving away.
   let threatCount = status.count;
   if (approachFilter) {
-    threatCount = (status.targets || []).filter(t => t.speed <= 0).length;
+    threatCount = (status.targets || []).filter(t => t.speed >= 0).length;
   }
 
   // ── Action: Shoulder surfer (2+ targets, debounced, not snoozed) ──

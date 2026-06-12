@@ -624,11 +624,13 @@ function drawRadar(targets, maxRangeMm, maxXMm = 1000) {
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    // Direction arrow — LD2450 speed is radial: negative = approaching
-    // the sensor (arrow points down/toward it), positive = moving away
-    // (arrow points up).  Hidden below 5 cm/s to avoid jitter arrows.
+    // Direction arrow — LD2450 speed is radial: POSITIVE = approaching
+    // the sensor (arrow points down/toward it), negative = moving away
+    // (arrow points up).  Verified on real hardware — the datasheet's
+    // sign convention is the reverse of what most docs claim.
+    // Hidden below 5 cm/s to avoid jitter arrows.
     if (Math.abs(t.speed) > 5) {
-      const away = t.speed > 0;
+      const away = t.speed < 0;
       const ay   = away ? py - 9 : py + 9;     // arrow tip base offset
       ctx.beginPath();
       if (away) {
