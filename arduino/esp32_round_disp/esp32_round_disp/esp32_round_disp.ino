@@ -50,12 +50,13 @@
 
 // ── EEPROM ────────────────────────────────────────────────────
 #define EEPROM_SIZE  16
-const int ADDR_COOL     = 0;
-const int ADDR_LOCKDLY  = 2;
-const int ADDR_MAXRANGE = 4;
-const int ADDR_LOCKEN   = 6;
-const int ADDR_ENABLED  = 7;
-const int ADDR_MAXX     = 8;
+const int ADDR_COOL      = 0;
+const int ADDR_LOCKDLY   = 2;
+const int ADDR_MAXRANGE  = 4;
+const int ADDR_LOCKEN    = 6;
+const int ADDR_ENABLED   = 7;
+const int ADDR_MAXX      = 8;
+const int ADDR_SNOOZEDUR = 10;  // uint16 — snooze duration (seconds)
 
 // ── Settings ─────────────────────────────────────────────────
 uint16_t cooldownSec  = 5;
@@ -64,6 +65,33 @@ uint16_t maxRangeMm   = 2000;
 uint16_t maxXMm       = 2000;
 bool     lockEnabled  = false;
 bool     enabled      = true;
+uint16_t snoozeDurSec = 300;    // tap-to-snooze duration — app sets via SET SNOOZEDUR
+
+// ── Snooze state ─────────────────────────────────────────────
+// While snoozed the firmware keeps streaming STATUS (with a snooze=
+// countdown field) so the app still shows the radar — the app just
+// suppresses trigger actions until the countdown hits 0.
+unsigned long snoozeUntil = 0;        // millis() deadline; 0 = not snoozed
+
+uint16_t snoozeRemainSec() {
+  if (snoozeUntil == 0) return 0;
+  long diff = (long)(snoozeUntil - millis());
+  if (diff <= 0) { snoozeUntil = 0; return 0; }
+  return (uint16_t)((diff + 999) / 1000);
+}
+
+// ── Clock (synced from the app via SET TIME) ─────────────────
+int8_t        clkH      = -1;         // -1 = never synced, clock hidden
+int8_t        clkM      = 0;
+unsigned long clkSyncMs = 0;          // millis() at last sync
+
+// ── Idle tracking — drives the clock face and backlight dim ──
+unsigned long lastPresenceMs = 0;     // last target seen OR screen touched
+bool          blDimmed       = false;
+const unsigned long IDLE_CLOCK_MS = 60000;    // 1 min empty → show clock
+const unsigned long IDLE_DIM_MS   = 300000;   // 5 min empty → dim backlight
+#define BL_FULL 200
+#define BL_DIM   30
 
 // ── LD2450 frame ─────────────────────────────────────────────
 const int FRAME_LEN = 30;
@@ -180,6 +208,12 @@ LGFX_Sprite fb(&tft);
 #define C_RED_SENSOR  0xFFE0    // yellow sensor dot
 #define C_RED_DOT     0xF800    // multi-target red
 
+// Amber theme — snoozed (armed but triggers paused, countdown showing)
+#define C_AMB_ARC     0xFC60    // amber/orange arcs
+#define C_AMB_LINE    0x7A20    // dim amber centre line
+#define C_AMB_SENSOR  0xFFE0    // yellow sensor dot
+#define C_AMB_DOT     0x07E0    // target dots stay green while snoozed
+
 // ── Radar geometry (240×240 round) ───────────────────────────
 #define SCREEN_W   240
 #define SCREEN_H   240
@@ -233,6 +267,7 @@ void setup() {
   EEPROM.begin(EEPROM_SIZE);
   memset(targets, 0, sizeof(targets));
   loadSettings();
+  lastPresenceMs = millis();   // treat boot as activity — full brightness, radar view
 
   // Note: configLD2450() is intentionally NOT called.  The newer LD2450
   // firmware revisions default to multi-target tracking already, and the
@@ -254,12 +289,39 @@ void loop() {
     sendStatus();
   }
 
-  // Refresh radar 4× per second so diagnostics stay live.
+  // Backlight auto-dim: fade down after IDLE_DIM_MS with nobody around,
+  // restore instantly when a target appears or the screen is touched.
+  bool idleDim = (now - lastPresenceMs) > IDLE_DIM_MS;
+  if (idleDim != blDimmed) {
+    blDimmed = idleDim;
+    analogWrite(BL_PIN, blDimmed ? BL_DIM : BL_FULL);
+  }
+
+  // Refresh display 4× per second (radar or idle clock).
   static unsigned long lastDraw = 0;
   if (now - lastDraw > 250) {
     lastDraw = now;
+    drawDisplay();
+  }
+}
+
+// ── Display dispatcher — radar normally, clock face when idle ─
+void drawDisplay() {
+  unsigned long now = millis();
+  bool idle = (now - lastPresenceMs) > IDLE_CLOCK_MS;
+  if (idle && activeCount == 0 && clkH >= 0) {
+    drawClock();
+  } else {
     drawRadar();
   }
+}
+
+// Current time derived from the last SET TIME sync + elapsed millis.
+void currentTime(int &h, int &m) {
+  unsigned long elapsedMin = (millis() - clkSyncMs) / 60000UL;
+  unsigned long total = (unsigned long)clkH * 60 + clkM + elapsedMin;
+  h = (int)((total / 60) % 24);
+  m = (int)(total % 60);
 }
 
 // ── LD2450 startup: enable multi-target mode ─────────────────
@@ -335,7 +397,8 @@ void parseFrame() {
       smoothInit[i] = false;
     }
   }
-  drawRadar();
+  if (activeCount > 0) lastPresenceMs = millis();
+  drawDisplay();
 }
 
 void sendStatus() {
@@ -352,6 +415,7 @@ void sendStatus() {
   Serial.print(",lockdly="); Serial.print(lockDelaySec);
   Serial.print(",maxrange=");Serial.print(maxRangeMm);
   Serial.print(",maxx=");    Serial.print(maxXMm);
+  Serial.print(",snooze=");  Serial.print(snoozeRemainSec());
   for (int i = 0; i < 3; i++) {
     Serial.print(",t"); Serial.print(i); Serial.print("x=");
     Serial.print(targets[i].valid ? targets[i].x : 0);
@@ -419,6 +483,29 @@ void processCommand(const char* cmd) {
   } else if (strcmp(cmd, "DISABLE") == 0) {
     enabled = false; EEPROM.put(ADDR_ENABLED, (uint8_t)0); EEPROM.commit();
     Serial.println("OK:DISABLED");
+  } else if (strncmp(cmd, "SET SNOOZEDUR ", 14) == 0) {
+    uint16_t v = (uint16_t)atoi(cmd + 14);
+    if (v >= 10 && v <= 3600) {
+      snoozeDurSec = v; EEPROM.put(ADDR_SNOOZEDUR, v); EEPROM.commit();
+      Serial.println("OK:SNOOZEDUR=" + String(v));
+    }
+  } else if (strncmp(cmd, "SET TIME ", 9) == 0) {
+    // Format: SET TIME <hour24>,<minute>    e.g. SET TIME 14,32
+    int h = atoi(cmd + 9);
+    const char *c1 = strchr(cmd + 9, ',');
+    if (c1 && h >= 0 && h <= 23) {
+      int m = atoi(c1 + 1);
+      if (m >= 0 && m <= 59) {
+        clkH = (int8_t)h; clkM = (int8_t)m; clkSyncMs = millis();
+        // No OK reply — sent every minute, would spam the app log
+      }
+    }
+  } else if (strcmp(cmd, "SNOOZE") == 0) {
+    snoozeUntil = millis() + (unsigned long)snoozeDurSec * 1000UL;
+    Serial.println("OK:SNOOZE=" + String(snoozeDurSec));
+  } else if (strcmp(cmd, "UNSNOOZE") == 0) {
+    snoozeUntil = 0;
+    Serial.println("OK:SNOOZE=0");
   } else if (strncmp(cmd, "SET WEATHER ", 12) == 0) {
     // Format: SET WEATHER <code>,<temp>,<unit>    e.g. SET WEATHER 0,72,F
     const char *p  = cmd + 12;
@@ -468,6 +555,12 @@ bool readCST816S(uint16_t &x, uint16_t &y) {
   return true;
 }
 
+// Tap zones (raw panel coords — independent of display rotation):
+//   TOP half    (y < 120) → toggle snooze: start a snoozeDurSec countdown,
+//                           or cancel it if already snoozing
+//   BOTTOM half (y ≥ 120) → toggle ARMED / DISARMED (the original behavior)
+// If the zones feel flipped for how your unit is mounted, swap the
+// comparison below (ty < 120 → ty >= 120).
 void handleTouch(unsigned long now) {
   static unsigned long lastPoll = 0;
   static unsigned long lastTap  = 0;
@@ -479,16 +572,31 @@ void handleTouch(unsigned long now) {
   uint16_t tx = 0, ty = 0;
   bool down = readCST816S(tx, ty);   // INT-pin gated → no ghost reads
 
-  // Rising edge with 300 ms debounce.  INT-pin gate alone is enough to
-  // kill ghost touches; no need for a sustained-poll requirement.
+  // Rising edge with 300 ms debounce.
   if (down && !wasDown && (now - lastTap) > 300) {
     lastTap = now;
-    enabled = !enabled;
-    EEPROM.put(ADDR_ENABLED, (uint8_t)(enabled ? 1 : 0));
-    EEPROM.commit();
-    Serial.printf("[touch] tap @%d,%d  → %s\n",
-                  tx, ty, enabled ? "ENABLED" : "DISABLED");
-    Serial.println(enabled ? "OK:ENABLED" : "OK:DISABLED");
+    lastPresenceMs = now;            // any tap wakes the display / undims
+
+    if (ty < 120) {
+      // ── Top half: snooze toggle ──
+      if (snoozeRemainSec() > 0) {
+        snoozeUntil = 0;
+        Serial.printf("[touch] tap @%d,%d  → snooze cancelled\n", tx, ty);
+        Serial.println("OK:SNOOZE=0");
+      } else {
+        snoozeUntil = now + (unsigned long)snoozeDurSec * 1000UL;
+        Serial.printf("[touch] tap @%d,%d  → snoozed %us\n", tx, ty, snoozeDurSec);
+        Serial.println("OK:SNOOZE=" + String(snoozeDurSec));
+      }
+    } else {
+      // ── Bottom half: arm/disarm toggle ──
+      enabled = !enabled;
+      EEPROM.put(ADDR_ENABLED, (uint8_t)(enabled ? 1 : 0));
+      EEPROM.commit();
+      Serial.printf("[touch] tap @%d,%d  → %s\n",
+                    tx, ty, enabled ? "ENABLED" : "DISABLED");
+      Serial.println(enabled ? "OK:ENABLED" : "OK:DISABLED");
+    }
     drawRadar();
   }
   wasDown = down;
@@ -502,6 +610,7 @@ void loadSettings() {
   EEPROM.get(ADDR_MAXX,     u16); if (u16 != 0xFFFF && u16 >= 200 && u16 <= 5000) maxXMm       = u16;
   EEPROM.get(ADDR_LOCKEN,   u8);  if (u8  != 0xFF) lockEnabled = (bool)u8;
   EEPROM.get(ADDR_ENABLED,  u8);  if (u8  != 0xFF) enabled     = (bool)u8;
+  EEPROM.get(ADDR_SNOOZEDUR,u16); if (u16 != 0xFFFF && u16 >= 10 && u16 <= 3600) snoozeDurSec = u16;
 }
 
 // ── Weather icon drawing — simple 24×24 vector icons ─────────
@@ -584,11 +693,16 @@ void drawRadar() {
   LovyanGFX *g = fb.getBuffer() ? (LovyanGFX *)&fb : (LovyanGFX *)&tft;
   g->fillScreen(C_BG);
 
-  // Three themes — green (disarmed), blue (armed clear), red (threat).
+  // Four themes — green (disarmed), amber (snoozed), red (threat),
+  // blue (armed + clear).
+  uint16_t snoozeLeft = snoozeRemainSec();
   uint16_t arcCol, lineCol, sensorCol, dotCol;
   if (!enabled) {
     arcCol = C_GREEN_ARC; lineCol = C_GREEN_LINE;
     sensorCol = C_GREEN_SENSOR; dotCol = C_GREEN_DOT;
+  } else if (snoozeLeft > 0) {
+    arcCol = C_AMB_ARC; lineCol = C_AMB_LINE;
+    sensorCol = C_AMB_SENSOR; dotCol = C_AMB_DOT;
   } else if (activeCount >= 2) {
     arcCol = C_RED_ARC; lineCol = C_RED_LINE;
     sensorCol = C_RED_SENSOR; dotCol = C_RED_DOT;
@@ -616,10 +730,19 @@ void drawRadar() {
   g->setCursor(RADAR_CX - (int)strlen(buf) * 6, 24);
   g->print(buf);
 
-  const char *modeLabel = enabled ? "ARMED" : "DISARMED";
+  // Mode label — SNOOZE shows a live countdown so a glance tells you
+  // how long until protection resumes.
+  char modeBuf[20];
+  if (!enabled) {
+    snprintf(modeBuf, sizeof(modeBuf), "DISARMED");
+  } else if (snoozeLeft > 0) {
+    snprintf(modeBuf, sizeof(modeBuf), "SNOOZE %u:%02u", snoozeLeft / 60, snoozeLeft % 60);
+  } else {
+    snprintf(modeBuf, sizeof(modeBuf), "ARMED");
+  }
   g->setTextColor(arcCol);
-  g->setCursor(RADAR_CX - (int)strlen(modeLabel) * 6, 46);
-  g->print(modeLabel);
+  g->setCursor(RADAR_CX - (int)strlen(modeBuf) * 6, 46);
+  g->print(modeBuf);
 
   // Weather widget — icon on the left, temperature on the right.
   // Only drawn once the Electron app pushes a `SET WEATHER` command.
@@ -647,6 +770,61 @@ void drawRadar() {
     py = constrain(py, DOT_R, RADAR_SY - DOT_R - 1);
     g->fillCircle(px, py, DOT_R, dotCol);
   }
+
+  if (fb.getBuffer()) fb.pushSprite(0, 0);
+}
+
+// ── Idle clock face ───────────────────────────────────────────
+// Shown after IDLE_CLOCK_MS with no targets (and once the app has
+// synced the time).  Any radar target or screen tap returns to radar
+// instantly via drawDisplay()'s idle check.
+void drawClock() {
+  LovyanGFX *g = fb.getBuffer() ? (LovyanGFX *)&fb : (LovyanGFX *)&tft;
+  g->fillScreen(C_BG);
+
+  int h, m;
+  currentTime(h, m);
+  bool pm  = h >= 12;
+  int  h12 = h % 12; if (h12 == 0) h12 = 12;
+
+  // Big HH:MM centred (size 5 = 30×40 px per char)
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%d:%02d", h12, m);
+  g->setTextColor(C_TEXT);
+  g->setTextSize(5);
+  g->setCursor(RADAR_CX - (int)strlen(buf) * 15, 78);
+  g->print(buf);
+
+  // AM/PM below the time
+  g->setTextSize(2);
+  g->setCursor(RADAR_CX - 12, 124);
+  g->print(pm ? "PM" : "AM");
+
+  // Weather — icon left of centre, temp right of centre
+  if (weatherSet) {
+    drawWeatherIcon(g, RADAR_CX - 44, 168, weatherCode);
+    g->setTextSize(2);
+    g->setTextColor(C_TEXT);
+    int numW = (int)strlen(weatherTempStr) * 12;
+    int sx   = RADAR_CX - 12;
+    g->setCursor(sx, 160);
+    g->print(weatherTempStr);
+    g->drawCircle(sx + numW + 3, 163, 2, C_TEXT);
+    g->setCursor(sx + numW + 8, 160);
+    g->print(weatherUnit);
+  }
+
+  // Small status hint at the top — colour matches the armed state
+  uint16_t snoozeLeft = snoozeRemainSec();
+  char modeBuf[20];
+  uint16_t modeCol;
+  if (!enabled)            { snprintf(modeBuf, sizeof(modeBuf), "DISARMED"); modeCol = C_GREEN_ARC; }
+  else if (snoozeLeft > 0) { snprintf(modeBuf, sizeof(modeBuf), "SNOOZE %u:%02u", snoozeLeft / 60, snoozeLeft % 60); modeCol = C_AMB_ARC; }
+  else                     { snprintf(modeBuf, sizeof(modeBuf), "ARMED"); modeCol = C_BLUE_ARC; }
+  g->setTextSize(1);
+  g->setTextColor(modeCol);
+  g->setCursor(RADAR_CX - (int)strlen(modeBuf) * 3, 34);
+  g->print(modeBuf);
 
   if (fb.getBuffer()) fb.pushSprite(0, 0);
 }

@@ -39,6 +39,14 @@ const advancedBody    = document.getElementById('advancedBody');
 const advancedChevron = document.getElementById('advancedChevron');
 const weatherZipInput = document.getElementById('weatherZipInput');
 const weatherZipStatus = document.getElementById('weatherZipStatus');
+const weatherChip     = document.getElementById('weatherChip');
+const weatherIcon     = document.getElementById('weatherIcon');
+const weatherTemp     = document.getElementById('weatherTemp');
+const snoozeDurSelect = document.getElementById('snoozeDurSelect');
+const approachFilterToggle = document.getElementById('approachFilterToggle');
+const tabActivity     = document.getElementById('tabActivity');
+const tabEvents       = document.getElementById('tabEvents');
+const eventsBox       = document.getElementById('eventsBox');
 const minimizeBtn     = document.getElementById('minimizeBtn');
 const closeBtn        = document.getElementById('closeBtn');
 const miniBtn         = document.getElementById('miniBtn');
@@ -128,6 +136,77 @@ window.arduino.getPrefs().then(prefs => {
   if (typeof prefs.weatherZip === 'string') {
     weatherZipInput.value = prefs.weatherZip;
   }
+  if (prefs.snoozeDurSec !== undefined) {
+    snoozeDurSelect.value = String(prefs.snoozeDurSec);
+  }
+  approachFilterToggle.checked = Boolean(prefs.approachFilter);
+});
+
+// ── Snooze duration ───────────────────────────────────────────
+snoozeDurSelect.addEventListener('change', () => {
+  const sec = Number(snoozeDurSelect.value);
+  window.arduino.setSnoozeDur(sec);
+  addLog(`[${ts()}] Snooze duration set to ${sec >= 60 ? sec / 60 + ' min' : sec + ' s'}`, 'ok');
+});
+
+// ── Approach filter ───────────────────────────────────────────
+approachFilterToggle.addEventListener('change', () => {
+  window.arduino.setApproachFilter(approachFilterToggle.checked);
+  addLog(`[${ts()}] Approach filter ${approachFilterToggle.checked ? 'enabled' : 'disabled'}`, 'ok');
+});
+
+// ── Weather chip (conn strip) ─────────────────────────────────
+const WEATHER_EMOJI = ['☀️', '⛅', '☁️', '🌧️', '🌨️', '⛈️', '🌫️', '🌙', '☁️'];
+
+window.arduino.onWeather((d) => {
+  weatherIcon.textContent = WEATHER_EMOJI[d.icon] || '🌡️';
+  weatherTemp.textContent = `${d.tempF}°F`;
+  weatherChip.title       = `${d.desc} — ${d.city}`;
+  weatherChip.style.display = 'flex';
+});
+
+// ── Event history tab ─────────────────────────────────────────
+function renderEvent(e) {
+  const div  = document.createElement('div');
+  const when = new Date(e.ts).toLocaleString();
+  if (e.type === 'trigger') {
+    div.className   = 'log-trigger';
+    const action    = e.action === 'lock' ? 'locked screen' : 'showed desktop';
+    div.textContent = `[${when}] THREAT — ${e.count} targets, ${action}`;
+  } else if (e.type === 'lock') {
+    div.className   = 'log-warn';
+    div.textContent = `[${when}] LOCKED — area empty for ${e.delaySec}s`;
+  } else {
+    div.className   = 'log-muted';
+    div.textContent = `[${when}] ${e.type}`;
+  }
+  eventsBox.appendChild(div);
+  eventsBox.scrollTop = eventsBox.scrollHeight;
+}
+
+window.arduino.getEvents().then(evts => evts.forEach(renderEvent));
+window.arduino.onEvent(renderEvent);
+
+function showTab(which) {
+  const act = which === 'activity';
+  tabActivity.classList.toggle('active', act);
+  tabEvents.classList.toggle('active', !act);
+  logBox.style.display    = act ? '' : 'none';
+  eventsBox.style.display = act ? 'none' : '';
+}
+tabActivity.addEventListener('click', () => showTab('activity'));
+tabEvents.addEventListener('click',   () => showTab('events'));
+
+// ── Auto-(re)connect sync from main process ──────────────────
+window.arduino.onConnected((portPath) => {
+  // Make sure the dropdown shows the port main connected to
+  if (![...portSelect.options].some(o => o.value === portPath)) {
+    const opt = document.createElement('option');
+    opt.value = opt.textContent = portPath;
+    portSelect.appendChild(opt);
+  }
+  portSelect.value = portPath;
+  setConnected(true);
 });
 
 // ── Weather ZIP code ──────────────────────────────────────────
@@ -246,14 +325,20 @@ window.arduino.onStatus((status) => {
   currentMaxX      = maxX;
   currentLockDelay = lockDelay;
 
+  const snoozeSec = status.snooze || 0;
+
   const displayTargets = smoothTargets(targets);
   if (targets.length === 0) smoothed = [{x:0,y:0},{x:0,y:0},{x:0,y:0}];
   drawRadar(displayTargets, maxRange, maxX);
   updateTargetList(displayTargets);
-  updateStatusUI(count, lockEn, false);
+  updateStatusUI(count, lockEn, false, snoozeSec > 0);
 
-  // Lock countdown display
-  if (lockEn && count === 0) {
+  // Countdown display — snooze takes precedence over the lock countdown
+  if (snoozeSec > 0) {
+    emptyStartTime = null;
+    lockCountdown.textContent =
+      `snoozed ${Math.floor(snoozeSec / 60)}:${String(snoozeSec % 60).padStart(2, '0')}`;
+  } else if (lockEn && count === 0) {
     if (!emptyStartTime) emptyStartTime = Date.now();
     const elapsed   = (Date.now() - emptyStartTime) / 1000;
     const remaining = Math.max(0, lockDelay - elapsed);
@@ -338,11 +423,14 @@ window.arduino.onLocked(() => {
 });
 
 // ── Status badge helper ───────────────────────────────────────
-function updateStatusUI(count, lockEn, isLocked) {
+function updateStatusUI(count, lockEn, isLocked, snoozed = false) {
   countBadge.textContent = `${count} target${count !== 1 ? 's' : ''}`;
   if (isLocked) {
     statusBadge.textContent = 'LOCKED';
     statusBadge.className   = 'status-badge locked';
+  } else if (snoozed) {
+    statusBadge.textContent = 'SNOOZED';
+    statusBadge.className   = 'status-badge snoozed';
   } else if (count === 0) {
     statusBadge.textContent = lockEn ? 'WATCHING' : 'EMPTY';
     statusBadge.className   = 'status-badge empty';
@@ -490,7 +578,14 @@ function addLog(msg, cls = 'muted') {
   while (logBox.children.length > 200) logBox.removeChild(logBox.firstChild);
 }
 
-clearLogBtn.addEventListener('click', () => { logBox.innerHTML = ''; });
+clearLogBtn.addEventListener('click', () => {
+  if (eventsBox.style.display !== 'none') {
+    window.arduino.clearEvents();
+    eventsBox.innerHTML = '';
+  } else {
+    logBox.innerHTML = '';
+  }
+});
 openLogBtn.addEventListener('click',  () => { window.arduino.openLogFile(); });
 
 // ── Sliders ───────────────────────────────────────────────────

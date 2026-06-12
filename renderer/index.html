@@ -47,6 +47,9 @@
         </label>
         <span id="enableText">ON</span>
       </label>
+      <div class="weather-chip" id="weatherChip" style="display:none">
+        <span id="weatherIcon"></span><span id="weatherTemp"></span>
+      </div>
     </div>
 
     <!-- Radar visualization -->
@@ -167,7 +170,7 @@
           </div>
 
           <!-- Adv Row 3: Max Depth + Width + Weather ZIP -->
-          <div class="settings-row" style="margin-bottom:0">
+          <div class="settings-row">
             <div class="slider-group">
               <div class="slider-labels">
                 <span>Max Depth</span>
@@ -198,20 +201,52 @@
             </div>
           </div>
 
+          <!-- Adv Row 4: Snooze duration + Approach filter -->
+          <div class="settings-row" style="margin-bottom:0">
+            <div class="slider-group">
+              <div class="slider-labels">
+                <span>Snooze Duration</span>
+              </div>
+              <select id="snoozeDurSelect" style="width:100%">
+                <option value="60">1 minute</option>
+                <option value="300" selected>5 minutes</option>
+                <option value="600">10 minutes</option>
+                <option value="900">15 minutes</option>
+                <option value="1800">30 minutes</option>
+                <option value="3600">60 minutes</option>
+              </select>
+              <div class="slider-hint">Tap top of round display to snooze</div>
+            </div>
+            <div class="setting-toggle-group" style="flex:2">
+              <label class="pill-toggle">
+                <input type="checkbox" id="approachFilterToggle">
+                <span class="pill-track"><span class="pill-thumb"></span></span>
+              </label>
+              <div class="toggle-info">
+                <span class="toggle-label">Approach filter</span>
+                <span class="toggle-hint">Only approaching or stationary people count as threats — passers-by walking away are ignored</span>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
 
-    <!-- Activity Log -->
+    <!-- Activity Log + Event history -->
     <div class="log-card">
       <div class="log-bar">
-        <span class="log-title">Activity</span>
+        <div class="log-tabs">
+          <button class="log-tab active" id="tabActivity">Activity</button>
+          <button class="log-tab" id="tabEvents">Events</button>
+        </div>
         <div class="log-bar-actions">
           <button id="openLogBtn" title="Open log file on disk">Open file</button>
           <button id="clearLogBtn">Clear</button>
         </div>
       </div>
       <div id="logBox"></div>
+      <div id="eventsBox" style="display:none"></div>
     </div>
 
   </div>

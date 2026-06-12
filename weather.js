@@ -154,7 +154,11 @@ async function getOpenMeteoWeather(lat, lon) {
 }
 
 // ── One-shot push ─────────────────────────────────────────────
-async function pushWeatherOnce(sendCmd, log) {
+// sendCmd — writes a line to the device serial port
+// log     — activity-log line for the app
+// onData  — optional; receives { tempF, icon, desc, city } so the app
+//           UI can display the weather alongside the device
+async function pushWeatherOnce(sendCmd, log, onData) {
   try {
     const loc = await getLocation();
     let w, src;
@@ -166,6 +170,7 @@ async function pushWeatherOnce(sendCmd, log) {
       src = `Open-Meteo (NWS unavailable: ${nwsErr.message})`;
     }
     sendCmd(`SET WEATHER ${w.icon},${w.tempF},F`);
+    onData && onData({ tempF: w.tempF, icon: w.icon, desc: w.desc, city: loc.city });
     log && log(`Weather pushed: ${w.tempF}F (${w.desc}), icon ${w.icon} via ${src} for ${loc.city}`);
   } catch (err) {
     log && log(`Weather fetch failed: ${err.message}`);
@@ -173,20 +178,20 @@ async function pushWeatherOnce(sendCmd, log) {
 }
 
 // ── Public API ────────────────────────────────────────────────
-function startWeatherSync(sendCmd, log) {
+function startWeatherSync(sendCmd, log, onData) {
   stopWeatherSync();
-  setTimeout(() => pushWeatherOnce(sendCmd, log), 3000);
-  timer = setInterval(() => pushWeatherOnce(sendCmd, log), REFRESH_MS);
+  setTimeout(() => pushWeatherOnce(sendCmd, log, onData), 3000);
+  timer = setInterval(() => pushWeatherOnce(sendCmd, log, onData), REFRESH_MS);
 }
 
 function stopWeatherSync() {
   if (timer) { clearInterval(timer); timer = null; }
 }
 
-function forceRefresh(sendCmd, log) {
+function forceRefresh(sendCmd, log, onData) {
   cachedLatLon = null;
   cachedNWS    = null;
-  return pushWeatherOnce(sendCmd, log);
+  return pushWeatherOnce(sendCmd, log, onData);
 }
 
 module.exports = { startWeatherSync, stopWeatherSync, forceRefresh, setZip };

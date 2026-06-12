@@ -28,7 +28,15 @@ let closeToTray     = true;        // false = quit on window close
 let alwaysOnTop     = false;       // window floats above all others
 let miniMode        = false;       // compact radar-only view
 let weatherZip      = '';          // US ZIP for weather; blank = IP auto-detect
+let snoozeDurSec    = 300;         // tap-to-snooze duration pushed to the device
+let approachFilter  = false;       // only count approaching/stationary targets as threats
+let lastPort        = '';          // last successfully connected port (for auto-reconnect)
 let prefsPath       = null;        // set in loadPrefs()
+
+// ── Auto-reconnect state ──────────────────────────────────────
+let userDisconnected = false;      // true when the user clicked Disconnect
+let reconnectTimer   = null;
+let timeSyncTimer    = null;       // pushes SET TIME to the device every minute
 let threatFrames    = 0;      // consecutive frames with count >= 2
 let threatThreshold = 4;      // frames needed before triggering (user-configurable)
 let lastTargetCount = -1;     // tracks count changes for target appear/disappear logging
@@ -48,6 +56,10 @@ function loadPrefs() {
       if (typeof data.threatThreshold === 'number')
         threatThreshold = Math.max(1, Math.min(5, data.threatThreshold));
       if (typeof data.weatherZip === 'string') weatherZip = data.weatherZip;
+      if (typeof data.snoozeDurSec === 'number')
+        snoozeDurSec = Math.max(10, Math.min(3600, data.snoozeDurSec));
+      if (typeof data.approachFilter === 'boolean') approachFilter = data.approachFilter;
+      if (typeof data.lastPort === 'string') lastPort = data.lastPort;
     }
   } catch (_) {}
 }
@@ -56,7 +68,8 @@ function savePrefs() {
   try {
     if (!prefsPath) return;
     fs.writeFileSync(prefsPath, JSON.stringify(
-      { alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold, weatherZip }, null, 2
+      { alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold,
+        weatherZip, snoozeDurSec, approachFilter, lastPort }, null, 2
     ), 'utf8');
   } catch (_) {}
 }
@@ -90,6 +103,31 @@ function logToFile(msg) {
     const line   = msg.replace(/^\[\d{1,2}:\d{2}:\d{2}.*?\]/, prefix);
     fs.appendFileSync(logFilePath, line + '\n', 'utf8');
   } catch (_) {}
+}
+
+// ── Event history (persistent) ────────────────────────────────
+// Trigger/lock events survive restarts so the Events tab acts as a
+// security audit trail, unlike the rolling Activity log.
+let eventsPath = null;
+let events     = [];                 // newest last; capped at MAX_EVENTS
+const MAX_EVENTS = 500;
+
+function initEvents() {
+  try {
+    eventsPath = path.join(app.getPath('userData'), 'events.json');
+    if (fs.existsSync(eventsPath)) {
+      const data = JSON.parse(fs.readFileSync(eventsPath, 'utf8'));
+      if (Array.isArray(data)) events = data.slice(-MAX_EVENTS);
+    }
+  } catch (_) { events = []; }
+}
+
+function addEvent(type, detail) {
+  const evt = { ts: Date.now(), type, ...detail };
+  events.push(evt);
+  if (events.length > MAX_EVENTS) events = events.slice(-MAX_EVENTS);
+  try { fs.writeFileSync(eventsPath, JSON.stringify(events), 'utf8'); } catch (_) {}
+  mainWindow?.webContents.send('event-added', evt);
 }
 
 // ── Auto-updater ──────────────────────────────────────────────
@@ -282,7 +320,21 @@ function rebuildTrayMenu() {
 }
 
 // ── App lifecycle ─────────────────────────────────────────────
-app.whenReady().then(() => { loadPrefs(); initLogger(); createWindow(); createTray(); initUpdater(); });
+app.whenReady().then(() => {
+  loadPrefs(); initLogger(); initEvents(); createWindow(); createTray(); initUpdater();
+
+  // Auto-connect to the last used port on startup (silent if it fails —
+  // the user can still connect manually, and a later unexpected drop
+  // re-arms the same retry loop).
+  if (lastPort) {
+    setTimeout(() => {
+      if (isConnected) return;
+      openPort(lastPort)
+        .then(() => uiLog(`Auto-connected to ${lastPort}`))
+        .catch(() => startReconnect());
+    }, 2500);
+  }
+});
 app.on('window-all-closed', () => {});
 app.on('before-quit', () => {
   app.isQuitting = true;
@@ -310,7 +362,10 @@ ipcMain.handle('set-start-on-login',   (_, v)      => {
 ipcMain.handle('get-start-on-login',   ()          => {
   return app.getLoginItemSettings().openAtLogin;
 });
-ipcMain.handle('get-prefs', () => ({ alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold, weatherZip }));
+ipcMain.handle('get-prefs', () => ({
+  alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold,
+  weatherZip, snoozeDurSec, approachFilter,
+}));
 ipcMain.handle('set-mini-mode', (_, mini) => {
   miniMode = Boolean(mini);
   if (miniMode) {
@@ -348,8 +403,121 @@ ipcMain.handle('list-ports', async () => {
   return ports.map(p => p.path);
 });
 
-// ── IPC: Connect ──────────────────────────────────────────────
-ipcMain.handle('connect', async (event, portPath) => {
+// ── Shared serial helpers ─────────────────────────────────────
+function deviceWrite(cmd) {
+  if (port?.isOpen) port.write(cmd + '\n');
+}
+
+function uiLog(m) {
+  const line = `[${ts()}] ${m}`;
+  logToFile(line);
+  mainWindow?.webContents.send('log', line);
+}
+
+function weatherData(d) {
+  mainWindow?.webContents.send('weather-update', d);
+}
+
+// Push the PC's clock to the device so its idle clock face stays accurate.
+function sendTimeSync() {
+  const d = new Date();
+  deviceWrite(`SET TIME ${d.getHours()},${d.getMinutes()}`);
+}
+
+// ── Incoming serial line handler ──────────────────────────────
+function handleSerialLine(line) {
+  line = line.trim();
+  if (!line.startsWith('STATUS:')) {
+    if (line.startsWith('OK:')) {
+      const msg = `[${ts()}] ${line}`;
+      mainWindow.webContents.send('log', msg);
+      logToFile(msg);
+    }
+    return;
+  }
+
+  const status  = parseStatus(line);
+  const snoozed = (status.snooze || 0) > 0;
+
+  // ── Log new/lost targets ──────────────────────────────
+  if (status.count !== lastTargetCount) {
+    const diff = status.count - lastTargetCount;
+    const msg  = diff > 0
+      ? `[${ts()}] Target detected — ${status.count} in view`
+      : `[${ts()}] Target lost — ${status.count} in view`;
+    mainWindow.webContents.send('log', msg);
+    logToFile(msg);
+    lastTargetCount = status.count;
+  }
+
+  // Sync app-side state from device settings
+  cooldownMs  = (status.cool  || 5)  * 1000;
+  lockDelayMs = (status.lockdly || 30) * 1000;
+  lockEnabled = Boolean(status.locken);
+
+  // Sync protection state — keeps tray & trigger logic in step with the UI toggle
+  const newProtection = Boolean(status.enabled);
+  if (newProtection !== protectionOn) {
+    protectionOn = newProtection;
+    tray.setImage(makeTrayIcon(protectionOn && isConnected ? '#58a6ff' : '#6e7681'));
+    rebuildTrayMenu();
+  }
+
+  // Approach filter: only targets moving toward the sensor (negative
+  // LD2450 speed) or standing still count toward a threat — someone
+  // walking away behind you isn't shoulder-surfing.
+  // (If your LD2450 reports the opposite sign convention, flip <= to >=.)
+  let threatCount = status.count;
+  if (approachFilter) {
+    threatCount = (status.targets || []).filter(t => t.speed <= 0).length;
+  }
+
+  // ── Action: Shoulder surfer (2+ targets, debounced, not snoozed) ──
+  if (protectionOn && !snoozed && threatCount >= 2) {
+    threatFrames++;
+    if (threatFrames >= threatThreshold) {
+      const now = Date.now();
+      if (now - lastTriggerTime >= cooldownMs) {
+        lastTriggerTime = now;
+        threatFrames    = 0;
+        if (triggerAction === 'lock') lockScreen(); else minimizeAll();
+        const trigMsg = `[${ts()}] TRIGGERED — ${status.count} targets detected`;
+        addEvent('trigger', { count: status.count, targets: status.targets, action: triggerAction });
+        mainWindow.webContents.send('triggered', status.targets);
+        mainWindow.webContents.send('log', trigMsg);
+        logToFile(trigMsg);
+        flashTrayRed();
+      }
+    }
+  } else {
+    threatFrames = 0;
+  }
+
+  // ── Action: Lock on empty (also paused while snoozed) ──
+  if (protectionOn && !snoozed && lockEnabled) {
+    if (status.count === 0) {
+      if (emptyStart === null) emptyStart = Date.now();
+      const elapsed = Date.now() - emptyStart;
+      if (!lockFired && elapsed >= lockDelayMs) {
+        lockFired = true;
+        lockScreen();
+        const lockMsg = `[${ts()}] Screen locked — no presence for ${Math.round(elapsed/1000)}s`;
+        addEvent('lock', { reason: 'empty', delaySec: Math.round(elapsed / 1000) });
+        mainWindow.webContents.send('locked');
+        mainWindow.webContents.send('log', lockMsg);
+        logToFile(lockMsg);
+      }
+    } else {
+      emptyStart = null;
+      lockFired  = false;
+    }
+  }
+
+  mainWindow.webContents.send('status-update', status);
+}
+
+// ── Open a serial port (used by IPC connect AND auto-reconnect) ─
+function openPort(portPath) {
   if (port?.isOpen) port.close();
   resetLockState();
 
@@ -357,99 +525,30 @@ ipcMain.handle('connect', async (event, portPath) => {
     port   = new SerialPort({ path: portPath, baudRate: 115200 });
     parser = port.pipe(new ReadlineParser({ delimiter: '\n' }));
 
-    parser.on('data', (line) => {
-      line = line.trim();
-      if (!line.startsWith('STATUS:')) {
-        if (line.startsWith('OK:')) {
-          const msg = `[${ts()}] ${line}`;
-          mainWindow.webContents.send('log', msg);
-          logToFile(msg);
-        }
-        return;
-      }
-
-      const status = parseStatus(line);
-
-      // ── Log new/lost targets ──────────────────────────────
-      if (status.count !== lastTargetCount) {
-        const diff = status.count - lastTargetCount;
-        const msg  = diff > 0
-          ? `[${ts()}] Target detected — ${status.count} in view`
-          : `[${ts()}] Target lost — ${status.count} in view`;
-        mainWindow.webContents.send('log', msg);
-        logToFile(msg);
-        lastTargetCount = status.count;
-      }
-
-      // Sync app-side state from Arduino settings
-      cooldownMs  = (status.cool  || 5)  * 1000;
-      lockDelayMs = (status.lockdly || 30) * 1000;
-      lockEnabled = Boolean(status.locken);
-
-      // Sync protection state — keeps tray & trigger logic in step with the UI toggle
-      const newProtection = Boolean(status.enabled);
-      if (newProtection !== protectionOn) {
-        protectionOn = newProtection;
-        tray.setImage(makeTrayIcon(protectionOn && isConnected ? '#58a6ff' : '#6e7681'));
-        rebuildTrayMenu();
-      }
-
-      // ── Action: Shoulder surfer (2+ targets, debounced) ──────
-      if (protectionOn && status.count >= 2) {
-        threatFrames++;
-        if (threatFrames >= threatThreshold) {
-          const now = Date.now();
-          if (now - lastTriggerTime >= cooldownMs) {
-            lastTriggerTime = now;
-            threatFrames    = 0;
-            if (triggerAction === 'lock') lockScreen(); else minimizeAll();
-            const trigMsg = `[${ts()}] TRIGGERED — ${status.count} targets detected`;
-            mainWindow.webContents.send('triggered', status.targets);
-            mainWindow.webContents.send('log', trigMsg);
-            logToFile(trigMsg);
-            flashTrayRed();
-          }
-        }
-      } else {
-        threatFrames = 0;
-      }
-
-      // ── Action: Lock on empty ─────────────────────────────
-      if (protectionOn && lockEnabled) {
-        if (status.count === 0) {
-          if (emptyStart === null) emptyStart = Date.now();
-          const elapsed = Date.now() - emptyStart;
-          if (!lockFired && elapsed >= lockDelayMs) {
-            lockFired = true;
-            lockScreen();
-            const lockMsg = `[${ts()}] Screen locked — no presence for ${Math.round(elapsed/1000)}s`;
-            mainWindow.webContents.send('locked');
-            mainWindow.webContents.send('log', lockMsg);
-            logToFile(lockMsg);
-          }
-        } else {
-          emptyStart = null;
-          lockFired  = false;
-        }
-      }
-
-      mainWindow.webContents.send('status-update', status);
-    });
+    parser.on('data', handleSerialLine);
 
     port.on('open', () => {
       isConnected = true;
+      stopReconnect();
       tray.setImage(makeTrayIcon(protectionOn ? '#58a6ff' : '#6e7681'));
       rebuildTrayMenu();
-      const msg = `[${ts()}] Connected to ${portPath}`;
-      logToFile(msg);
+      logToFile(`[${ts()}] Connected to ${portPath}`);
+
+      // Remember the port so we can auto-reconnect after cable hiccups
+      lastPort = portPath;
+      savePrefs();
+
+      // Push device config + clock, then keep the clock synced
+      deviceWrite(`SET SNOOZEDUR ${snoozeDurSec}`);
+      sendTimeSync();
+      if (timeSyncTimer) clearInterval(timeSyncTimer);
+      timeSyncTimer = setInterval(sendTimeSync, 60000);
 
       // Start pushing weather to the round display every 15 min
       weather.setZip(weatherZip);
-      weather.startWeatherSync(
-        (cmd) => { if (port?.isOpen) port.write(cmd + '\n'); },
-        (m)   => { const line = `[${ts()}] ${m}`; logToFile(line); mainWindow?.webContents.send('log', line); }
-      );
+      weather.startWeatherSync(deviceWrite, uiLog, weatherData);
 
+      mainWindow?.webContents.send('connected', portPath);
       resolve(true);
     });
     port.on('error', (err) => {
@@ -460,16 +559,47 @@ ipcMain.handle('connect', async (event, portPath) => {
       isConnected = false;
       resetLockState();
       weather.stopWeatherSync();
+      if (timeSyncTimer) { clearInterval(timeSyncTimer); timeSyncTimer = null; }
       tray.setImage(makeTrayIcon('#6e7681'));
       rebuildTrayMenu();
       logToFile(`[${ts()}] Disconnected from ${portPath}`);
       mainWindow.webContents.send('disconnected');
+      // Unexpected drop (cable, device reboot) → quietly retry until it's back
+      if (!userDisconnected && lastPort) startReconnect();
     });
   });
+}
+
+// ── Auto-reconnect — retry the remembered port every 5 s ──────
+function startReconnect() {
+  if (reconnectTimer) return;
+  uiLog(`Connection lost — auto-reconnecting to ${lastPort}…`);
+  reconnectTimer = setInterval(async () => {
+    if (isConnected) { stopReconnect(); return; }
+    try {
+      const ports = await SerialPort.list();
+      if (!ports.some(p => p.path === lastPort)) return;   // device not plugged in yet
+      await openPort(lastPort);
+      uiLog(`Auto-reconnected to ${lastPort}`);
+    } catch (_) { /* not up yet — retry on the next tick */ }
+  }, 5000);
+}
+
+function stopReconnect() {
+  if (reconnectTimer) { clearInterval(reconnectTimer); reconnectTimer = null; }
+}
+
+// ── IPC: Connect ──────────────────────────────────────────────
+ipcMain.handle('connect', (event, portPath) => {
+  userDisconnected = false;
+  stopReconnect();
+  return openPort(portPath);
 });
 
 // ── IPC: Disconnect ───────────────────────────────────────────
 ipcMain.handle('disconnect', () => {
+  userDisconnected = true;       // user chose this — don't auto-reconnect
+  stopReconnect();
   if (port?.isOpen) port.close();
   port = null;
   resetLockState();
@@ -484,10 +614,7 @@ ipcMain.handle('send-command', (event, cmd) => {
 
 // ── IPC: Force-refresh weather ────────────────────────────────
 ipcMain.handle('refresh-weather', () => {
-  weather.forceRefresh(
-    (cmd) => { if (port?.isOpen) port.write(cmd + '\n'); },
-    (m)   => { const line = `[${ts()}] ${m}`; logToFile(line); mainWindow?.webContents.send('log', line); }
-  );
+  weather.forceRefresh(deviceWrite, uiLog, weatherData);
 });
 
 // ── IPC: Set weather ZIP code ─────────────────────────────────
@@ -496,10 +623,28 @@ ipcMain.handle('set-weather-zip', (_, zip) => {
   savePrefs();
   weather.setZip(weatherZip);
   // Re-fetch right away so the display reflects the new location
-  weather.forceRefresh(
-    (cmd) => { if (port?.isOpen) port.write(cmd + '\n'); },
-    (m)   => { const line = `[${ts()}] ${m}`; logToFile(line); mainWindow?.webContents.send('log', line); }
-  );
+  weather.forceRefresh(deviceWrite, uiLog, weatherData);
+});
+
+// ── IPC: Snooze duration ──────────────────────────────────────
+ipcMain.handle('set-snooze-dur', (_, sec) => {
+  snoozeDurSec = Math.max(10, Math.min(3600, Number(sec) || 300));
+  savePrefs();
+  deviceWrite(`SET SNOOZEDUR ${snoozeDurSec}`);
+});
+
+// ── IPC: Approach filter ──────────────────────────────────────
+ipcMain.handle('set-approach-filter', (_, v) => {
+  approachFilter = Boolean(v);
+  savePrefs();
+});
+
+// ── IPC: Event history ────────────────────────────────────────
+ipcMain.handle('get-events', () => events);
+ipcMain.handle('clear-events', () => {
+  events = [];
+  try { fs.writeFileSync(eventsPath, '[]', 'utf8'); } catch (_) {}
+  return true;
 });
 
 // ── OS actions ────────────────────────────────────────────────

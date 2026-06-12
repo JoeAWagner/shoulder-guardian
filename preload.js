@@ -10,10 +10,13 @@ contextBridge.exposeInMainWorld('arduino', {
   // Events from main process
   onStatus:        (cb) => ipcRenderer.on('status-update',          (_, d) => cb(d)),
   onLog:           (cb) => ipcRenderer.on('log',                    (_, m) => cb(m)),
+  onConnected:     (cb) => ipcRenderer.on('connected',              (_, p) => cb(p)),
   onDisconnect:    (cb) => ipcRenderer.on('disconnected',           ()     => cb()),
   onTriggered:     (cb) => ipcRenderer.on('triggered',              (_, t) => cb(t)),
   onLocked:        (cb) => ipcRenderer.on('locked',                 ()     => cb()),
   onTrayToggle:    (cb) => ipcRenderer.on('tray-protection-change', (_, v) => cb(v)),
+  onWeather:       (cb) => ipcRenderer.on('weather-update',         (_, d) => cb(d)),
+  onEvent:         (cb) => ipcRenderer.on('event-added',            (_, e) => cb(e)),
 
   // App settings
   setTriggerAction:    (action) => ipcRenderer.invoke('set-trigger-action', action),
@@ -35,6 +38,14 @@ contextBridge.exposeInMainWorld('arduino', {
   // Weather
   refreshWeather:   ()    => ipcRenderer.invoke('refresh-weather'),
   setWeatherZip:    (zip) => ipcRenderer.invoke('set-weather-zip', zip),
+
+  // Snooze + approach filter
+  setSnoozeDur:      (sec) => ipcRenderer.invoke('set-snooze-dur', sec),
+  setApproachFilter: (v)   => ipcRenderer.invoke('set-approach-filter', v),
+
+  // Event history
+  getEvents:   () => ipcRenderer.invoke('get-events'),
+  clearEvents: () => ipcRenderer.invoke('clear-events'),
 
   // Window controls
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
