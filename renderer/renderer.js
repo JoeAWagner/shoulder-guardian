@@ -78,21 +78,67 @@ let currentLockDelay    = 30;
 let emptyStartTime      = null;
 let settingsInitialized = false;  // sliders only synced on first status after connect
 
-// ── Coordinate smoothing (EMA) ────────────────────────────────
-let SMOOTH_ALPHA = 0.35;   // 0=frozen, 1=raw — lower = smoother, set by smoothSlider
-let smoothed = [{x:0,y:0},{x:0,y:0},{x:0,y:0}];
+// ── Coordinate smoothing ──────────────────────────────────────
+// Two-stage pipeline, keyed by radar slot (NOT array index — the old
+// index-keyed version made dots lurch whenever a slot flickered out,
+// because the remaining targets inherited each other's filter state):
+//
+//   1. EMA per slot on each STATUS frame (~10 Hz) — kills sensor noise.
+//      SMOOTH_ALPHA from the Smoothing slider.
+//   2. A 60 fps render loop glides the *displayed* position toward the
+//      EMA value every animation frame, so dots move continuously
+//      instead of jumping 10×/second.
+//
+// A 350 ms disappearance grace keeps dots from blinking when the radar
+// drops a target for a frame or two.
+let SMOOTH_ALPHA = 0.25;   // 0=frozen, 1=raw — set by smoothSlider
+const GLIDE      = 0.18;   // per-frame fraction of remaining distance
+const SLOT_GRACE_MS = 350; // keep showing a slot this long after last report
 
-function smoothTargets(targets) {
-  return targets.map((t, i) => {
-    if (!smoothed[i] || (smoothed[i].x === 0 && smoothed[i].y === 0)) {
-      smoothed[i] = { x: t.x, y: t.y };   // snap on first appearance
+let slotState = {};        // slot -> { x, y, dispX, dispY, speed, lastSeen }
+
+function ingestTargets(targets) {
+  const now = performance.now();
+  targets.forEach((t, idx) => {
+    const key = t.slot ?? idx;          // slot from main.js; index as fallback
+    let s = slotState[key];
+    if (!s) {
+      // New target: snap straight to position (no glide-in from nowhere)
+      s = slotState[key] = { x: t.x, y: t.y, dispX: t.x, dispY: t.y };
     } else {
-      smoothed[i].x = SMOOTH_ALPHA * t.x + (1 - SMOOTH_ALPHA) * smoothed[i].x;
-      smoothed[i].y = SMOOTH_ALPHA * t.y + (1 - SMOOTH_ALPHA) * smoothed[i].y;
+      s.x = SMOOTH_ALPHA * t.x + (1 - SMOOTH_ALPHA) * s.x;
+      s.y = SMOOTH_ALPHA * t.y + (1 - SMOOTH_ALPHA) * s.y;
     }
-    return { ...t, x: smoothed[i].x, y: smoothed[i].y };
+    s.speed    = t.speed;
+    s.lastSeen = now;
   });
 }
+
+// Current targets to display (slot-keyed, with glided positions)
+function displayList() {
+  const now = performance.now();
+  const list = [];
+  for (const k of Object.keys(slotState)) {
+    const s = slotState[k];
+    if (now - s.lastSeen > SLOT_GRACE_MS) { delete slotState[k]; continue; }
+    list.push({ slot: Number(k), x: s.dispX, y: s.dispY, speed: s.speed });
+  }
+  return list;
+}
+
+// 60 fps glide + redraw loop — runs whenever connected.
+function animateRadar() {
+  if (connected) {
+    for (const k of Object.keys(slotState)) {
+      const s = slotState[k];
+      s.dispX += (s.x - s.dispX) * GLIDE;
+      s.dispY += (s.y - s.dispY) * GLIDE;
+    }
+    drawRadar(displayList(), currentMaxRange, currentMaxX);
+  }
+  requestAnimationFrame(animateRadar);
+}
+requestAnimationFrame(animateRadar);
 
 // ── Threat action selector ────────────────────────────────────
 [actionMinimize, actionLock].forEach(btn => {
@@ -368,6 +414,7 @@ function setConnected(state) {
   if (!state) {
     settingsInitialized = false;
     updateSnoozeBtn(false);
+    slotState = {};                       // clear smoothing state
     drawRadar([], 2000, 1000);
     updateStatusUI(0, false, false);
     lockCountdown.textContent = '';
@@ -396,10 +443,9 @@ window.arduino.onStatus((status) => {
   const snoozeSec = status.snooze || 0;
   updateSnoozeBtn(snoozeSec > 0);
 
-  const displayTargets = smoothTargets(targets);
-  if (targets.length === 0) smoothed = [{x:0,y:0},{x:0,y:0},{x:0,y:0}];
-  drawRadar(displayTargets, maxRange, maxX);
-  updateTargetList(displayTargets);
+  // Feed the smoothing pipeline — the 60 fps loop handles drawing
+  ingestTargets(targets);
+  updateTargetList(displayList());
   updateStatusUI(count, lockEn, false, snoozeSec > 0);
 
   // Countdown display — snooze takes precedence over the lock countdown
@@ -518,13 +564,14 @@ const TARGET_COLORS = ['#3fb950', '#f85149', '#d29922'];
 function updateTargetList(targets) {
   targetList.innerHTML = '';
   targets.forEach((t, i) => {
+    const slot = t.slot ?? i;            // stable identity = stable colour/label
     const dist = (t.y / 1000).toFixed(2);
     const side = t.x === 0 ? 'center'
                : t.x < 0  ? `${(Math.abs(t.x) / 10).toFixed(0)}cm left`
                :             `${(t.x / 10).toFixed(0)}cm right`;
     const div = document.createElement('div');
     div.className = 'target-row';
-    div.innerHTML = `<span class="target-dot t${i}"></span> T${i+1}: ${dist}m · ${side}`;
+    div.innerHTML = `<span class="target-dot t${slot}"></span> T${slot + 1}: ${dist}m · ${side}`;
     targetList.appendChild(div);
   });
 }
@@ -604,7 +651,7 @@ function drawRadar(targets, maxRangeMm, maxXMm = 1000) {
   targets.forEach((t, i) => {
     const px = SENSOR_X + (t.x / maxRangeMm) * (W / 2 - 4);
     const py = SENSOR_Y - (t.y / maxRangeMm) * PLOT_R;
-    const color = TARGET_COLORS[i] || TARGET_COLORS[2];
+    const color = TARGET_COLORS[t.slot ?? i] || TARGET_COLORS[2];
 
     // Glow
     const grad = ctx.createRadialGradient(px, py, 0, px, py, 18);

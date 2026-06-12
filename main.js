@@ -709,7 +709,9 @@ function parseStatus(line) {
     const x = obj[`t${i}x`] || 0;
     const y = obj[`t${i}y`] || 0;
     const s = obj[`t${i}s`] || 0;
-    if (x !== 0 || y !== 0) obj.targets.push({ x, y, speed: s });
+    // slot identity matters: the renderer smooths per radar slot, so a
+    // target flickering out must not shift the others' smoothing state
+    if (x !== 0 || y !== 0) obj.targets.push({ slot: i, x, y, speed: s });
   }
 
   return obj;
