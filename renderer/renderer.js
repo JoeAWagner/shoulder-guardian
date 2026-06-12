@@ -166,11 +166,16 @@ approachFilterToggle.addEventListener('change', () => {
 // ── Weather chip (conn strip) ─────────────────────────────────
 const WEATHER_EMOJI = ['☀️', '⛅', '☁️', '🌧️', '🌨️', '⛈️', '🌫️', '🌙', '☁️'];
 
+const miniWeather = document.getElementById('miniWeather');
+
 window.arduino.onWeather((d) => {
   weatherIcon.textContent = WEATHER_EMOJI[d.icon] || '🌡️';
   weatherTemp.textContent = `${d.tempF}°F`;
   weatherChip.title       = `${d.desc} — ${d.city}`;
   weatherChip.style.display = 'flex';
+  // Mini mode hides the conn strip, so mirror the weather into the
+  // radar status row (only visible in mini via CSS).
+  miniWeather.textContent = `${WEATHER_EMOJI[d.icon] || ''} ${d.tempF}°F`;
 });
 
 // ── Event history tab ─────────────────────────────────────────

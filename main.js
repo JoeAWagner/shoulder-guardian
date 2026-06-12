@@ -244,7 +244,8 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   if (alwaysOnTop) mainWindow.setAlwaysOnTop(true);
   if (miniMode) {
-    mainWindow.setSize(444, 300);
+    mainWindow.setMinimumSize(444, 296);   // must drop the 720×560 floor first
+    mainWindow.setSize(444, 296);
     mainWindow.setResizable(false);
   }
   mainWindow.once('ready-to-show', () => mainWindow.show());
@@ -374,11 +375,15 @@ ipcMain.handle('get-prefs', () => ({
 ipcMain.handle('set-mini-mode', (_, mini) => {
   miniMode = Boolean(mini);
   if (miniMode) {
-    mainWindow.setSize(444, 300);   // canvas + status row (target list hidden in mini)
+    // Drop the minimum first — otherwise setSize() is clamped to the
+    // normal-mode 720×560 floor and mini mode shows a huge empty window.
+    mainWindow.setMinimumSize(444, 296);
+    mainWindow.setSize(444, 296);
     mainWindow.setResizable(false);
   } else {
-    mainWindow.setSize(720, 800);
     mainWindow.setResizable(true);
+    mainWindow.setMinimumSize(720, 560);
+    mainWindow.setSize(720, 800);
   }
   savePrefs();
 });
