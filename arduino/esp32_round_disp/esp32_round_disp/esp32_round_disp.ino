@@ -81,9 +81,35 @@ uint16_t snoozeRemainSec() {
 }
 
 // ── Clock (synced from the app via SET TIME) ─────────────────
+// Extended format: SET TIME <h24>,<m>[,<month1-12>,<day>,<dow0-6>]
+// Date fields are optional for backward compatibility.
 int8_t        clkH      = -1;         // -1 = never synced, clock hidden
 int8_t        clkM      = 0;
+int8_t        clkMo     = 0;          // 1-12; 0 = date unknown
+int8_t        clkDay    = 0;
+int8_t        clkDow    = 0;          // 0 = Sunday
 unsigned long clkSyncMs = 0;          // millis() at last sync
+const unsigned long CLK_STALE_MS = 2UL * 60UL * 60UL * 1000UL;  // 2 h without sync → gray clock
+
+// ── Target trails — last few smoothed positions per slot ─────
+#define TRAIL_LEN 4
+float   trailX[3][TRAIL_LEN];         // mm coords, index 0 = oldest
+float   trailY[3][TRAIL_LEN];
+uint8_t trailN[3] = {0, 0, 0};        // valid entries per slot
+
+// ── Threat pulse + tap-zone hints + sweep ────────────────────
+unsigned long threatSinceMs = 0;      // when activeCount first hit 2+ (0 = no threat)
+unsigned long hintUntilMs   = 0;      // show tap-zone hints until this time
+const unsigned long THREAT_PULSE_MS = 2000;  // pulse the red theme this long
+#define SWEEP_PERIOD_MS 4000          // one full left→right sweep
+
+// Scale an RGB565 colour by num/den — used for trail fade and pulse dim.
+uint16_t dimColor(uint16_t c, uint8_t num, uint8_t den) {
+  uint16_t r = ((c >> 11) & 0x1F) * num / den;
+  uint16_t g = ((c >> 5)  & 0x3F) * num / den;
+  uint16_t b = ( c        & 0x1F) * num / den;
+  return (r << 11) | (g << 5) | b;
+}
 
 // ── Idle tracking — drives the clock face and backlight dim ──
 unsigned long lastPresenceMs = 0;     // last target seen OR screen touched
@@ -268,6 +294,7 @@ void setup() {
   memset(targets, 0, sizeof(targets));
   loadSettings();
   lastPresenceMs = millis();   // treat boot as activity — full brightness, radar view
+  hintUntilMs    = millis() + 4000;  // show tap-zone hints briefly on boot
 
   // Note: configLD2450() is intentionally NOT called.  The newer LD2450
   // firmware revisions default to multi-target tracking already, and the
@@ -297,9 +324,10 @@ void loop() {
     analogWrite(BL_PIN, blDimmed ? BL_DIM : BL_FULL);
   }
 
-  // Refresh display 4× per second (radar or idle clock).
+  // Refresh display at ~10 fps — keeps the sweep line and pulse smooth.
+  // Full-frame sprite push is ~25 ms over 40 MHz SPI, well within budget.
   static unsigned long lastDraw = 0;
-  if (now - lastDraw > 250) {
+  if (now - lastDraw > 100) {
     lastDraw = now;
     drawDisplay();
   }
@@ -393,11 +421,33 @@ void parseFrame() {
         smoothY[i]    = targets[i].y;
         smoothInit[i] = true;
       }
+      // Push the new smoothed position onto this slot's trail
+      if (trailN[i] < TRAIL_LEN) {
+        trailX[i][trailN[i]] = smoothX[i];
+        trailY[i][trailN[i]] = smoothY[i];
+        trailN[i]++;
+      } else {
+        for (int k = 0; k < TRAIL_LEN - 1; k++) {
+          trailX[i][k] = trailX[i][k + 1];
+          trailY[i][k] = trailY[i][k + 1];
+        }
+        trailX[i][TRAIL_LEN - 1] = smoothX[i];
+        trailY[i][TRAIL_LEN - 1] = smoothY[i];
+      }
     } else {
       smoothInit[i] = false;
+      trailN[i]     = 0;
     }
   }
   if (activeCount > 0) lastPresenceMs = millis();
+
+  // Track when a threat (2+ targets) starts, for the pulse animation
+  if (activeCount >= 2) {
+    if (threatSinceMs == 0) threatSinceMs = millis();
+  } else {
+    threatSinceMs = 0;
+  }
+
   drawDisplay();
 }
 
@@ -490,13 +540,30 @@ void processCommand(const char* cmd) {
       Serial.println("OK:SNOOZEDUR=" + String(v));
     }
   } else if (strncmp(cmd, "SET TIME ", 9) == 0) {
-    // Format: SET TIME <hour24>,<minute>    e.g. SET TIME 14,32
+    // Format: SET TIME <hour24>,<minute>[,<month>,<day>,<dow>]
+    // e.g. SET TIME 14,32,6,12,4  (2:32 PM, June 12, Thursday)
     int h = atoi(cmd + 9);
     const char *c1 = strchr(cmd + 9, ',');
     if (c1 && h >= 0 && h <= 23) {
       int m = atoi(c1 + 1);
       if (m >= 0 && m <= 59) {
         clkH = (int8_t)h; clkM = (int8_t)m; clkSyncMs = millis();
+        // Optional date fields
+        const char *c2 = strchr(c1 + 1, ',');
+        if (c2) {
+          int mo = atoi(c2 + 1);
+          const char *c3 = strchr(c2 + 1, ',');
+          if (c3 && mo >= 1 && mo <= 12) {
+            int d = atoi(c3 + 1);
+            const char *c4 = strchr(c3 + 1, ',');
+            if (c4 && d >= 1 && d <= 31) {
+              int dow = atoi(c4 + 1);
+              if (dow >= 0 && dow <= 6) {
+                clkMo = (int8_t)mo; clkDay = (int8_t)d; clkDow = (int8_t)dow;
+              }
+            }
+          }
+        }
         // No OK reply — sent every minute, would spam the app log
       }
     }
@@ -576,6 +643,7 @@ void handleTouch(unsigned long now) {
   if (down && !wasDown && (now - lastTap) > 300) {
     lastTap = now;
     lastPresenceMs = now;            // any tap wakes the display / undims
+    hintUntilMs    = now + 1200;     // flash the zone labels so taps are discoverable
 
     if (ty < 120) {
       // ── Top half: snooze toggle ──
@@ -711,6 +779,16 @@ void drawRadar() {
     sensorCol = C_BLUE_SENSOR; dotCol = C_TARGET_DOT;
   }
 
+  // Threat pulse — for the first 2 s of a threat, strobe the arcs
+  // between full and dimmed red so the state change grabs attention.
+  unsigned long nowMs = millis();
+  if (threatSinceMs != 0 && (nowMs - threatSinceMs) < THREAT_PULSE_MS) {
+    if ((nowMs / 250) % 2) {
+      arcCol  = dimColor(arcCol, 1, 3);
+      lineCol = dimColor(lineCol, 1, 3);
+    }
+  }
+
   // Range arcs centred at the bottom — only the upper half is visible
   // on the round 240×240 panel, naturally creating a half-circle radar.
   for (int i = 1; i <= RADAR_ARCS; i++) {
@@ -719,6 +797,36 @@ void drawRadar() {
   }
   g->fillRect(0, RADAR_SY + 1, SCREEN_W, SCREEN_H - RADAR_SY - 1, C_BG);
   g->drawFastVLine(RADAR_CX, 0, RADAR_SY, lineCol);
+
+  // Sweep line — rotates left→right across the half-disc, with two
+  // dimmer trailing lines for the classic radar look.
+  {
+    float phase = (float)(nowMs % SWEEP_PERIOD_MS) / SWEEP_PERIOD_MS;  // 0..1
+    for (int t = 2; t >= 0; t--) {
+      float p = phase - t * 0.02f;
+      if (p < 0) continue;
+      float a  = 3.14159f + p * 3.14159f;          // 180°..360°
+      int16_t ex = RADAR_CX + (int16_t)(cosf(a) * RADAR_R);
+      int16_t ey = RADAR_SY + (int16_t)(sinf(a) * RADAR_R);
+      ey = constrain(ey, (int16_t)0, (int16_t)RADAR_SY);
+      uint16_t col = (t == 0) ? dimColor(arcCol, 2, 3) : dimColor(arcCol, 1, 4 + t);
+      g->drawLine(RADAR_CX, RADAR_SY, ex, ey, col);
+    }
+  }
+
+  // Distance labels along the centre line (in meters).  The outermost
+  // arc is skipped — its label would collide with the header text.
+  g->setTextSize(1);
+  g->setTextColor(dimColor(C_TEXT, 2, 3));
+  for (int i = 1; i < RADAR_ARCS; i++) {
+    int16_t r = (int16_t)((uint32_t)RADAR_R * i / RADAR_ARCS);
+    float meters = (float)maxRangeMm * i / RADAR_ARCS / 1000.0f;
+    char lbl[8];
+    snprintf(lbl, sizeof(lbl), "%.1fm", meters);
+    g->setCursor(RADAR_CX + 4, RADAR_SY - r + 2);
+    g->print(lbl);
+  }
+
   g->fillCircle(RADAR_CX, RADAR_SY, 4, sensorCol);
 
   // "Targets = N" near the top, then ARMED/DISARMED line below in the
@@ -761,14 +869,39 @@ void drawRadar() {
     g->print(weatherUnit);                           // 'F' or 'C'
   }
 
-  // Target dots — smoothed positions, colour from the palette above.
+  // Target dots — fading trail first (oldest dimmest/smallest), then
+  // the live dot on top.  The trail makes direction of travel readable.
   for (int i = 0; i < 3; i++) {
     if (!targets[i].valid) continue;
+    for (int k = 0; k < (int)trailN[i] - 1; k++) {
+      int16_t tpx, tpy;
+      mmToPx((int16_t)trailX[i][k], (int16_t)trailY[i][k], tpx, tpy);
+      tpx = constrain(tpx, DOT_R, SCREEN_W - 1 - DOT_R);
+      tpy = constrain(tpy, DOT_R, RADAR_SY - DOT_R - 1);
+      uint8_t age = trailN[i] - 1 - k;             // 1 = newest trail point
+      g->fillCircle(tpx, tpy, max(2, DOT_R - 1 - age),
+                    dimColor(dotCol, 1, 1 + age));
+    }
     int16_t px, py;
     mmToPx((int16_t)smoothX[i], (int16_t)smoothY[i], px, py);
     px = constrain(px, DOT_R, SCREEN_W - 1 - DOT_R);
     py = constrain(py, DOT_R, RADAR_SY - DOT_R - 1);
     g->fillCircle(px, py, DOT_R, dotCol);
+  }
+
+  // Tap-zone hints — shown briefly on boot and after any tap so the
+  // invisible zones are discoverable.
+  if ((long)(hintUntilMs - millis()) > 0) {
+    uint16_t hintCol = dimColor(C_TEXT, 3, 4);
+    g->drawFastHLine(40, 120, 160, dimColor(C_TEXT, 1, 3));  // zone divider
+    g->setTextSize(1);
+    g->setTextColor(hintCol);
+    const char *topHint = "TAP: SNOOZE";
+    g->setCursor(RADAR_CX - (int)strlen(topHint) * 3, 104);
+    g->print(topHint);
+    const char *botHint = "TAP: ARM/DISARM";
+    g->setCursor(RADAR_CX - (int)strlen(botHint) * 3, 130);
+    g->print(botHint);
   }
 
   if (fb.getBuffer()) fb.pushSprite(0, 0);
@@ -787,18 +920,37 @@ void drawClock() {
   bool pm  = h >= 12;
   int  h12 = h % 12; if (h12 == 0) h12 = 12;
 
+  // If the app hasn't synced the clock in >2 h the time is drifting on
+  // millis() alone — gray it out so a stale reading isn't trusted.
+  bool stale = (millis() - clkSyncMs) > CLK_STALE_MS;
+  uint16_t timeCol = stale ? dimColor(C_TEXT, 1, 3) : C_TEXT;
+
   // Big HH:MM centred (size 5 = 30×40 px per char)
   char buf[8];
   snprintf(buf, sizeof(buf), "%d:%02d", h12, m);
-  g->setTextColor(C_TEXT);
+  g->setTextColor(timeCol);
   g->setTextSize(5);
-  g->setCursor(RADAR_CX - (int)strlen(buf) * 15, 78);
+  g->setCursor(RADAR_CX - (int)strlen(buf) * 15, 70);
   g->print(buf);
 
   // AM/PM below the time
   g->setTextSize(2);
-  g->setCursor(RADAR_CX - 12, 124);
+  g->setCursor(RADAR_CX - 12, 114);
   g->print(pm ? "PM" : "AM");
+
+  // Date line — "Thu Jun 12" — when the app has sent date fields
+  if (clkMo >= 1) {
+    static const char *DOW[] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
+    static const char *MON[] = {"Jan","Feb","Mar","Apr","May","Jun",
+                                "Jul","Aug","Sep","Oct","Nov","Dec"};
+    char dateBuf[16];
+    snprintf(dateBuf, sizeof(dateBuf), "%s %s %d",
+             DOW[clkDow % 7], MON[(clkMo - 1) % 12], clkDay);
+    g->setTextSize(1);
+    g->setTextColor(dimColor(C_TEXT, 2, 3));
+    g->setCursor(RADAR_CX - (int)strlen(dateBuf) * 3, 138);
+    g->print(dateBuf);
+  }
 
   // Weather — icon left of centre, temp right of centre
   if (weatherSet) {

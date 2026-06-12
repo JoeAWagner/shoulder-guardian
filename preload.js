@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('arduino', {
   onStatus:        (cb) => ipcRenderer.on('status-update',          (_, d) => cb(d)),
   onLog:           (cb) => ipcRenderer.on('log',                    (_, m) => cb(m)),
   onConnected:     (cb) => ipcRenderer.on('connected',              (_, p) => cb(p)),
+  onReconnecting:  (cb) => ipcRenderer.on('reconnecting',           (_, p) => cb(p)),
   onDisconnect:    (cb) => ipcRenderer.on('disconnected',           ()     => cb()),
   onTriggered:     (cb) => ipcRenderer.on('triggered',              (_, t) => cb(t)),
   onLocked:        (cb) => ipcRenderer.on('locked',                 ()     => cb()),

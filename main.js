@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, Notification } = require('electron');
 const path   = require('path');
 const fs     = require('fs');
 const { exec } = require('child_process');
@@ -244,7 +244,7 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   if (alwaysOnTop) mainWindow.setAlwaysOnTop(true);
   if (miniMode) {
-    mainWindow.setSize(444, 312);
+    mainWindow.setSize(444, 300);
     mainWindow.setResizable(false);
   }
   mainWindow.once('ready-to-show', () => mainWindow.show());
@@ -309,6 +309,11 @@ function rebuildTrayMenu() {
         rebuildTrayMenu();
       },
     },
+    {
+      label: `Snooze (${Math.round(snoozeDurSec / 60)} min)`,
+      enabled: isConnected,
+      click: () => deviceWrite('SNOOZE'),
+    },
     { type: 'separator' },
     { label: `Status: ${isConnected ? 'Connected' : 'Disconnected'}`, enabled: false },
     { type: 'separator' },
@@ -364,15 +369,15 @@ ipcMain.handle('get-start-on-login',   ()          => {
 });
 ipcMain.handle('get-prefs', () => ({
   alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold,
-  weatherZip, snoozeDurSec, approachFilter,
+  weatherZip, snoozeDurSec, approachFilter, lastPort,
 }));
 ipcMain.handle('set-mini-mode', (_, mini) => {
   miniMode = Boolean(mini);
   if (miniMode) {
-    mainWindow.setSize(444, 312);
+    mainWindow.setSize(444, 300);   // canvas + status row (target list hidden in mini)
     mainWindow.setResizable(false);
   } else {
-    mainWindow.setSize(500, 820);
+    mainWindow.setSize(720, 800);
     mainWindow.setResizable(true);
   }
   savePrefs();
@@ -419,9 +424,10 @@ function weatherData(d) {
 }
 
 // Push the PC's clock to the device so its idle clock face stays accurate.
+// Includes date fields so the clock face can show "Thu Jun 12".
 function sendTimeSync() {
   const d = new Date();
-  deviceWrite(`SET TIME ${d.getHours()},${d.getMinutes()}`);
+  deviceWrite(`SET TIME ${d.getHours()},${d.getMinutes()},${d.getMonth() + 1},${d.getDate()},${d.getDay()}`);
 }
 
 // ── Incoming serial line handler ──────────────────────────────
@@ -487,6 +493,15 @@ function handleSerialLine(line) {
         mainWindow.webContents.send('log', trigMsg);
         logToFile(trigMsg);
         flashTrayRed();
+        // Toast — explains the sudden desktop/lock so the user knows
+        // it was Shoulder Guardian and not a glitch.
+        if (Notification.isSupported()) {
+          new Notification({
+            title: 'Shoulder Guardian',
+            body: `${status.count} people detected — ${triggerAction === 'lock' ? 'screen locked' : 'desktop hidden'}`,
+            silent: false,
+          }).show();
+        }
       }
     }
   } else {
@@ -574,6 +589,7 @@ function openPort(portPath) {
 function startReconnect() {
   if (reconnectTimer) return;
   uiLog(`Connection lost — auto-reconnecting to ${lastPort}…`);
+  mainWindow?.webContents.send('reconnecting', lastPort);
   reconnectTimer = setInterval(async () => {
     if (isConnected) { stopReconnect(); return; }
     try {
@@ -631,6 +647,7 @@ ipcMain.handle('set-snooze-dur', (_, sec) => {
   snoozeDurSec = Math.max(10, Math.min(3600, Number(sec) || 300));
   savePrefs();
   deviceWrite(`SET SNOOZEDUR ${snoozeDurSec}`);
+  rebuildTrayMenu();   // tray Snooze label shows the duration
 });
 
 // ── IPC: Approach filter ──────────────────────────────────────

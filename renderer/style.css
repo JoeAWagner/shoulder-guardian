@@ -87,6 +87,10 @@ body {
   background: var(--muted2); flex-shrink: 0; transition: background 0.3s, box-shadow 0.3s;
 }
 .badge-dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.badge-dot.reconnecting {
+  background: var(--orange);
+  animation: badge-pulse 0.9s ease infinite;
+}
 
 select {
   flex: 1; min-width: 0; padding: 5px 8px;
@@ -105,6 +109,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 #refreshBtn { padding: 5px 9px; font-size: 14px; }
 
 .strip-sep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+
+/* ── Snooze button ───────────────────────────────────────────── */
+#snoozeBtn.snoozing {
+  background: rgba(210,153,34,0.12);
+  color: var(--orange);
+  border-color: rgba(210,153,34,0.4);
+}
 
 /* ── Weather chip ────────────────────────────────────────────── */
 .weather-chip {
@@ -297,6 +308,11 @@ input[type="range"] { width: 100%; accent-color: var(--blue); cursor: pointer; h
 .log-bar-actions { display: flex; gap: 6px; }
 .log-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); }
 
+.events-summary {
+  font-size: 10.5px; color: var(--muted2);
+  padding: 0 2px; flex-shrink: 0;
+}
+
 .log-tabs { display: flex; gap: 2px; }
 .log-tab {
   font-size: 10px; font-weight: 700; text-transform: uppercase;
@@ -354,9 +370,13 @@ input[type="range"] { width: 100%; accent-color: var(--blue); cursor: pointer; h
 .update-dismiss:hover { color: var(--text); background: var(--border); filter: none; }
 
 /* ── Mini mode ───────────────────────────────────────────────── */
+/* Keeps the status row (count badge, SNOOZED/THREAT state, countdown)
+   visible so mini mode works as an always-on-top corner widget;
+   the per-target detail list is hidden to save height. */
 .mini-btn { font-size: 15px; }
 body.mini .conn-strip,
 body.mini .settings-card,
+body.mini .target-list,
 body.mini .log-card  { display: none; }
 
 body.mini .app {

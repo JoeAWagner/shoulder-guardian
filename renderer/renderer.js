@@ -47,6 +47,8 @@ const approachFilterToggle = document.getElementById('approachFilterToggle');
 const tabActivity     = document.getElementById('tabActivity');
 const tabEvents       = document.getElementById('tabEvents');
 const eventsBox       = document.getElementById('eventsBox');
+const eventsSummary   = document.getElementById('eventsSummary');
+const snoozeBtn       = document.getElementById('snoozeBtn');
 const minimizeBtn     = document.getElementById('minimizeBtn');
 const closeBtn        = document.getElementById('closeBtn');
 const miniBtn         = document.getElementById('miniBtn');
@@ -140,6 +142,12 @@ window.arduino.getPrefs().then(prefs => {
     snoozeDurSelect.value = String(prefs.snoozeDurSec);
   }
   approachFilterToggle.checked = Boolean(prefs.approachFilter);
+
+  // First run (no remembered port) — point the user at the connect flow.
+  if (!prefs.lastPort) {
+    addLog('Welcome! Plug in your Shoulder Guardian, click ↻, choose its COM port, and hit Connect.', 'info');
+    addLog('After the first connect, the app reconnects automatically from then on.', 'info');
+  }
 });
 
 // ── Snooze duration ───────────────────────────────────────────
@@ -166,9 +174,32 @@ window.arduino.onWeather((d) => {
 });
 
 // ── Event history tab ─────────────────────────────────────────
+let allEvents = [];
+
+// Relative-ish timestamps: "2:14 PM today", "11:03 AM yesterday",
+// "Mon Jun 8, 2:14 PM" beyond that.
+function fmtWhen(tsMs) {
+  const d    = new Date(tsMs);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = new Date();         today.setHours(0, 0, 0, 0);
+  const yday  = new Date(today);    yday.setDate(yday.getDate() - 1);
+  if (d >= today) return `${time} today`;
+  if (d >= yday)  return `${time} yesterday`;
+  return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + `, ${time}`;
+}
+
+function updateEventsSummary() {
+  const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+  const recent  = allEvents.filter(e => e.ts >= weekAgo);
+  const trig    = recent.filter(e => e.type === 'trigger').length;
+  eventsSummary.textContent = allEvents.length === 0
+    ? 'No events recorded yet'
+    : `${recent.length} event${recent.length !== 1 ? 's' : ''} in the last 7 days (${trig} threat${trig !== 1 ? 's' : ''})`;
+}
+
 function renderEvent(e) {
   const div  = document.createElement('div');
-  const when = new Date(e.ts).toLocaleString();
+  const when = fmtWhen(e.ts);
   if (e.type === 'trigger') {
     div.className   = 'log-trigger';
     const action    = e.action === 'lock' ? 'locked screen' : 'showed desktop';
@@ -184,18 +215,48 @@ function renderEvent(e) {
   eventsBox.scrollTop = eventsBox.scrollHeight;
 }
 
-window.arduino.getEvents().then(evts => evts.forEach(renderEvent));
-window.arduino.onEvent(renderEvent);
+window.arduino.getEvents().then(evts => {
+  allEvents = evts || [];
+  allEvents.forEach(renderEvent);
+  updateEventsSummary();
+});
+window.arduino.onEvent((e) => {
+  allEvents.push(e);
+  renderEvent(e);
+  updateEventsSummary();
+});
 
 function showTab(which) {
   const act = which === 'activity';
   tabActivity.classList.toggle('active', act);
   tabEvents.classList.toggle('active', !act);
-  logBox.style.display    = act ? '' : 'none';
-  eventsBox.style.display = act ? 'none' : '';
+  logBox.style.display        = act ? '' : 'none';
+  eventsBox.style.display     = act ? 'none' : '';
+  eventsSummary.style.display = act ? 'none' : '';
+  if (!act) updateEventsSummary();
 }
 tabActivity.addEventListener('click', () => showTab('activity'));
 tabEvents.addEventListener('click',   () => showTab('events'));
+
+// ── Snooze button (conn strip) ────────────────────────────────
+let deviceSnoozed = false;   // tracked from STATUS snooze= field
+
+snoozeBtn.addEventListener('click', () => {
+  if (!connected) return;
+  window.arduino.sendCommand(deviceSnoozed ? 'UNSNOOZE' : 'SNOOZE');
+});
+
+function updateSnoozeBtn(snoozed) {
+  deviceSnoozed = snoozed;
+  snoozeBtn.textContent = snoozed ? 'Wake' : 'Snooze';
+  snoozeBtn.classList.toggle('snoozing', snoozed);
+}
+
+// ── Reconnecting state ────────────────────────────────────────
+window.arduino.onReconnecting(() => {
+  connDot.className      = 'badge-dot reconnecting';
+  connStatus.textContent = 'Reconnecting…';
+});
 
 // ── Auto-(re)connect sync from main process ──────────────────
 window.arduino.onConnected((portPath) => {
@@ -298,8 +359,10 @@ function setConnected(state) {
   connDot.className      = 'badge-dot' + (state ? ' on' : '');
   connStatus.textContent = state ? 'Connected' : 'Disconnected';
   connectBtn.textContent = state ? 'Disconnect' : 'Connect';
+  snoozeBtn.disabled     = !state;
   if (!state) {
     settingsInitialized = false;
+    updateSnoozeBtn(false);
     drawRadar([], 2000, 1000);
     updateStatusUI(0, false, false);
     lockCountdown.textContent = '';
@@ -326,6 +389,7 @@ window.arduino.onStatus((status) => {
   currentLockDelay = lockDelay;
 
   const snoozeSec = status.snooze || 0;
+  updateSnoozeBtn(snoozeSec > 0);
 
   const displayTargets = smoothTargets(targets);
   if (targets.length === 0) smoothed = [{x:0,y:0},{x:0,y:0},{x:0,y:0}];
@@ -554,6 +618,27 @@ function drawRadar(targets, maxRangeMm, maxXMm = 1000) {
     ctx.shadowColor = color;
     ctx.fill();
     ctx.shadowBlur = 0;
+
+    // Direction arrow — LD2450 speed is radial: negative = approaching
+    // the sensor (arrow points down/toward it), positive = moving away
+    // (arrow points up).  Hidden below 5 cm/s to avoid jitter arrows.
+    if (Math.abs(t.speed) > 5) {
+      const away = t.speed > 0;
+      const ay   = away ? py - 9 : py + 9;     // arrow tip base offset
+      ctx.beginPath();
+      if (away) {
+        ctx.moveTo(px, ay - 6);                // tip (pointing up)
+        ctx.lineTo(px - 4, ay);
+        ctx.lineTo(px + 4, ay);
+      } else {
+        ctx.moveTo(px, ay + 6);                // tip (pointing down)
+        ctx.lineTo(px - 4, ay);
+        ctx.lineTo(px + 4, ay);
+      }
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
   });
 }
 
@@ -582,6 +667,8 @@ clearLogBtn.addEventListener('click', () => {
   if (eventsBox.style.display !== 'none') {
     window.arduino.clearEvents();
     eventsBox.innerHTML = '';
+    allEvents = [];
+    updateEventsSummary();
   } else {
     logBox.innerHTML = '';
   }
