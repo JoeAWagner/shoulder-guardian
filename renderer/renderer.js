@@ -44,6 +44,7 @@ const weatherIcon     = document.getElementById('weatherIcon');
 const weatherTemp     = document.getElementById('weatherTemp');
 const snoozeDurSelect = document.getElementById('snoozeDurSelect');
 const approachFilterToggle = document.getElementById('approachFilterToggle');
+const displayFontSelect = document.getElementById('displayFontSelect');
 const tabActivity     = document.getElementById('tabActivity');
 const tabEvents       = document.getElementById('tabEvents');
 const eventsBox       = document.getElementById('eventsBox');
@@ -188,6 +189,9 @@ window.arduino.getPrefs().then(prefs => {
     snoozeDurSelect.value = String(prefs.snoozeDurSec);
   }
   approachFilterToggle.checked = Boolean(prefs.approachFilter);
+  if (prefs.displayFont !== undefined) {
+    displayFontSelect.value = String(prefs.displayFont);
+  }
 
   // First run (no remembered port) — point the user at the connect flow.
   if (!prefs.lastPort) {
@@ -207,6 +211,12 @@ snoozeDurSelect.addEventListener('change', () => {
 approachFilterToggle.addEventListener('change', () => {
   window.arduino.setApproachFilter(approachFilterToggle.checked);
   addLog(`[${ts()}] Approach filter ${approachFilterToggle.checked ? 'enabled' : 'disabled'}`, 'ok');
+});
+
+// ── Round-display font ────────────────────────────────────────
+displayFontSelect.addEventListener('change', () => {
+  window.arduino.setDisplayFont(Number(displayFontSelect.value));
+  addLog(`[${ts()}] Display font set to ${displayFontSelect.options[displayFontSelect.selectedIndex].text}`, 'ok');
 });
 
 // ── Weather chip (conn strip) ─────────────────────────────────

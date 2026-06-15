@@ -57,6 +57,7 @@ const int ADDR_LOCKEN    = 6;
 const int ADDR_ENABLED   = 7;
 const int ADDR_MAXX      = 8;
 const int ADDR_SNOOZEDUR = 10;  // uint16 — snooze duration (seconds)
+const int ADDR_FONT      = 12;  // uint8  — UI font index (app sets via SET FONT)
 
 // ── Settings ─────────────────────────────────────────────────
 uint16_t cooldownSec  = 5;
@@ -66,6 +67,20 @@ uint16_t maxXMm       = 2000;
 bool     lockEnabled  = false;
 bool     enabled      = true;
 uint16_t snoozeDurSec = 300;    // tap-to-snooze duration — app sets via SET SNOOZEDUR
+
+// ── Selectable UI font (prominent text) — app picks via SET FONT ──
+// All bundled LovyanGFX fonts; index persisted in EEPROM.  Used for the
+// header, mode label, clock AM/PM/date/status and weather temp.  The big
+// clock digits use their own CLOCK_FONT; tiny ring labels stay default.
+const lgfx::IFont* const UI_FONTS[] = {
+  &fonts::FreeSansBold12pt7b,   // 0 — clean bold (default)
+  &fonts::FreeSans12pt7b,       // 1 — clean sans
+  &fonts::Orbitron_Light_24,    // 2 — futuristic / techy
+  &fonts::FreeSerif12pt7b,      // 3 — elegant serif
+  &fonts::DejaVu18,             // 4 — neutral, high legibility
+};
+const uint8_t UI_FONT_COUNT = 5;
+uint8_t uiFontIdx = 0;
 
 // ── Snooze state ─────────────────────────────────────────────
 // While snoozed the firmware keeps streaming STATUS (with a snooze=
@@ -101,7 +116,7 @@ uint8_t trailN[3] = {0, 0, 0};        // valid entries per slot
 unsigned long threatSinceMs = 0;      // when activeCount first hit 2+ (0 = no threat)
 unsigned long hintUntilMs   = 0;      // show tap-zone hints until this time
 const unsigned long THREAT_PULSE_MS = 2000;  // pulse the red theme this long
-#define RIPPLE_PERIOD_MS 2600         // one ping expanding from sensor to edge
+#define RIPPLE_PERIOD_MS 4200         // one ping expanding from sensor to edge (slower = calmer)
 #define RIPPLE_COUNT      3           // staggered concurrent ripples
 
 // Scale an RGB565 colour by num/den — used for trail fade and pulse dim.
@@ -568,6 +583,13 @@ void processCommand(const char* cmd) {
         // No OK reply — sent every minute, would spam the app log
       }
     }
+  } else if (strncmp(cmd, "SET FONT ", 9) == 0) {
+    int v = atoi(cmd + 9);
+    if (v >= 0 && v < (int)UI_FONT_COUNT) {
+      uiFontIdx = (uint8_t)v;
+      EEPROM.put(ADDR_FONT, uiFontIdx); EEPROM.commit();
+      Serial.println("OK:FONT=" + String(v));
+    }
   } else if (strcmp(cmd, "SNOOZE") == 0) {
     snoozeUntil = millis() + (unsigned long)snoozeDurSec * 1000UL;
     Serial.println("OK:SNOOZE=" + String(snoozeDurSec));
@@ -680,6 +702,7 @@ void loadSettings() {
   EEPROM.get(ADDR_LOCKEN,   u8);  if (u8  != 0xFF) lockEnabled = (bool)u8;
   EEPROM.get(ADDR_ENABLED,  u8);  if (u8  != 0xFF) enabled     = (bool)u8;
   EEPROM.get(ADDR_SNOOZEDUR,u16); if (u16 != 0xFFFF && u16 >= 10 && u16 <= 3600) snoozeDurSec = u16;
+  EEPROM.get(ADDR_FONT,     u8);  if (u8  != 0xFF && u8 < UI_FONT_COUNT) uiFontIdx = u8;
 }
 
 // ── Weather icon drawing — simple 24×24 vector icons ─────────
@@ -758,6 +781,36 @@ void mmToPx(int16_t xMm, int16_t yMm, int16_t &px, int16_t &py) {
   py = (int16_t)(RADAR_SY - ((int32_t)yMm * RADAR_R) / (int32_t)maxRangeMm);
 }
 
+// Draw a string centred at (x,y) in the selected UI font, then restore
+// the default 6×8 font + datum so setCursor/print micro-labels still work.
+void uiText(LovyanGFX *g, const char *s, int x, int y, uint16_t col) {
+  g->setFont(UI_FONTS[uiFontIdx]);
+  g->setTextSize(1);
+  g->setTextColor(col);
+  g->setTextDatum(textdatum_t::middle_center);
+  g->drawString(s, x, y);
+  g->setFont(&fonts::Font0);
+  g->setTextDatum(textdatum_t::top_left);
+}
+
+// Weather temp ("72°F") in the UI font with a drawn degree ring, right
+// edge ending near `rightX`, vertical middle at `cy`.
+void uiWeatherTemp(LovyanGFX *g, int rightX, int cy) {
+  g->setFont(UI_FONTS[uiFontIdx]);
+  g->setTextSize(1);
+  g->setTextColor(C_TEXT);
+  g->setTextDatum(textdatum_t::middle_left);
+  char ub[2] = { weatherUnit, 0 };
+  int numW  = g->textWidth(weatherTempStr);
+  int unitW = g->textWidth(ub);
+  int sx    = rightX - (numW + 8 + unitW);
+  g->drawString(weatherTempStr, sx, cy);
+  g->drawCircle(sx + numW + 4, cy - (g->fontHeight() / 3), 2, C_TEXT);
+  g->drawString(ub, sx + numW + 8, cy);
+  g->setFont(&fonts::Font0);
+  g->setTextDatum(textdatum_t::top_left);
+}
+
 void drawRadar() {
   LovyanGFX *g = fb.getBuffer() ? (LovyanGFX *)&fb : (LovyanGFX *)&tft;
   g->fillScreen(C_BG);
@@ -800,17 +853,20 @@ void drawRadar() {
   g->drawFastVLine(RADAR_CX, 0, RADAR_SY, lineCol);
 
   // Ripple — concentric half-circles expanding outward from the sensor
-  // like a sonar ping, fading as they grow.  Replaces the rotating sweep.
+  // like a sonar ping, fading smoothly as they grow.  Each ring grows
+  // from r=0 (no pop-in) and is skipped only once it's already nearly
+  // invisible near the edge (no pop-out) — this kills the flicker the
+  // old hard r<6 cutoff + clamped-minimum brightness caused.
   for (int rp = 0; rp < RIPPLE_COUNT; rp++) {
     unsigned long t = (nowMs + (unsigned long)rp * RIPPLE_PERIOD_MS / RIPPLE_COUNT)
                       % RIPPLE_PERIOD_MS;
-    float   phase = (float)t / RIPPLE_PERIOD_MS;     // 0..1 expand
-    int16_t r     = (int16_t)(phase * RADAR_R);
-    if (r < 6) continue;
-    // Brightness fades from full at the sensor to nothing at the edge.
-    uint8_t num = (uint8_t)max(1.0f, (1.0f - phase) * 5.0f);
-    uint16_t col = dimColor(arcCol, num, 5);
-    g->drawCircle(RADAR_CX, RADAR_SY, r, col);
+    float   phase  = (float)t / RIPPLE_PERIOD_MS;    // 0..1 expand
+    float   bright = 1.0f - phase;                   // 1 at sensor → 0 at edge
+    if (bright <= 0.10f) continue;                   // already invisible — skip cleanly
+    uint8_t num = (uint8_t)(bright * 6.0f);          // 6-step fade
+    if (num < 1) continue;
+    int16_t r = (int16_t)(phase * RADAR_R);
+    g->drawCircle(RADAR_CX, RADAR_SY, r, dimColor(arcCol, num, 6));
   }
   // Re-clear below the sensor — ripple circles dip under it.
   g->fillRect(0, RADAR_SY + 1, SCREEN_W, SCREEN_H - RADAR_SY - 1, C_BG);
@@ -830,14 +886,11 @@ void drawRadar() {
 
   g->fillCircle(RADAR_CX, RADAR_SY, 4, sensorCol);
 
-  // "Targets = N" near the top, then ARMED/DISARMED line below in the
+  // "Targets: N" near the top, then ARMED/DISARMED line below in the
   // current theme colour (so the label and the radar reinforce each other).
-  g->setTextColor(C_TEXT);
-  g->setTextSize(2);
   char buf[24];
-  snprintf(buf, sizeof(buf), "Targets = %d", activeCount);
-  g->setCursor(RADAR_CX - (int)strlen(buf) * 6, 24);
-  g->print(buf);
+  snprintf(buf, sizeof(buf), "Targets: %d", activeCount);
+  uiText(g, buf, RADAR_CX, 28, C_TEXT);
 
   // Mode label — SNOOZE shows a live countdown so a glance tells you
   // how long until protection resumes.
@@ -849,25 +902,14 @@ void drawRadar() {
   } else {
     snprintf(modeBuf, sizeof(modeBuf), "ARMED");
   }
-  g->setTextColor(arcCol);
-  g->setCursor(RADAR_CX - (int)strlen(modeBuf) * 6, 46);
-  g->print(modeBuf);
+  uiText(g, modeBuf, RADAR_CX, 52, arcCol);
 
   // Weather widget — icon on the left, temperature on the right.
   // Only drawn once the Electron app pushes a `SET WEATHER` command.
   // The degree symbol is drawn as a small circle (the font has no °).
   if (weatherSet) {
     drawWeatherIcon(g, 30, 82, weatherCode);
-    g->setTextColor(C_TEXT);
-    g->setTextSize(2);
-    int numW   = (int)strlen(weatherTempStr) * 12;  // size-2 chars are 12 px
-    int totalW = numW + 7 /*degree*/ + 12 /*unit char*/;
-    int startX = 224 - totalW;                       // right-aligned
-    g->setCursor(startX, 74);
-    g->print(weatherTempStr);                        // e.g. "72"
-    g->drawCircle(startX + numW + 3, 77, 2, C_TEXT); // ° degree symbol
-    g->setCursor(startX + numW + 8, 74);
-    g->print(weatherUnit);                           // 'F' or 'C'
+    uiWeatherTemp(g, 222, 82);
   }
 
   // Target dots — fading trail first (oldest dimmest/smallest), then
@@ -950,9 +992,7 @@ void drawClock() {
   g->setTextDatum(textdatum_t::top_left);
 
   // AM/PM below the time
-  g->setTextSize(2);
-  g->setCursor(RADAR_CX - 12, 118);
-  g->print(pm ? "PM" : "AM");
+  uiText(g, pm ? "PM" : "AM", RADAR_CX, 126, C_TEXT);
 
   // Date line — "Thu Jun 12" — when the app has sent date fields
   if (clkMo >= 1) {
@@ -962,24 +1002,13 @@ void drawClock() {
     char dateBuf[16];
     snprintf(dateBuf, sizeof(dateBuf), "%s %s %d",
              DOW[clkDow % 7], MON[(clkMo - 1) % 12], clkDay);
-    g->setTextSize(1);
-    g->setTextColor(dimColor(C_TEXT, 2, 3));
-    g->setCursor(RADAR_CX - (int)strlen(dateBuf) * 3, 138);
-    g->print(dateBuf);
+    uiText(g, dateBuf, RADAR_CX, 150, dimColor(C_TEXT, 2, 3));
   }
 
   // Weather — icon left of centre, temp right of centre
   if (weatherSet) {
-    drawWeatherIcon(g, RADAR_CX - 44, 168, weatherCode);
-    g->setTextSize(2);
-    g->setTextColor(C_TEXT);
-    int numW = (int)strlen(weatherTempStr) * 12;
-    int sx   = RADAR_CX - 12;
-    g->setCursor(sx, 160);
-    g->print(weatherTempStr);
-    g->drawCircle(sx + numW + 3, 163, 2, C_TEXT);
-    g->setCursor(sx + numW + 8, 160);
-    g->print(weatherUnit);
+    drawWeatherIcon(g, RADAR_CX - 44, 174, weatherCode);
+    uiWeatherTemp(g, RADAR_CX + 56, 174);
   }
 
   // Small status hint at the top — colour matches the armed state
@@ -989,10 +1018,7 @@ void drawClock() {
   if (!enabled)            { snprintf(modeBuf, sizeof(modeBuf), "DISARMED"); modeCol = C_GREEN_ARC; }
   else if (snoozeLeft > 0) { snprintf(modeBuf, sizeof(modeBuf), "SNOOZE %u:%02u", snoozeLeft / 60, snoozeLeft % 60); modeCol = C_AMB_ARC; }
   else                     { snprintf(modeBuf, sizeof(modeBuf), "ARMED"); modeCol = C_BLUE_ARC; }
-  g->setTextSize(1);
-  g->setTextColor(modeCol);
-  g->setCursor(RADAR_CX - (int)strlen(modeBuf) * 3, 34);
-  g->print(modeBuf);
+  uiText(g, modeBuf, RADAR_CX, 40, modeCol);
 
   if (fb.getBuffer()) fb.pushSprite(0, 0);
 }

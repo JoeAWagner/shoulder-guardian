@@ -30,6 +30,7 @@ let miniMode        = false;       // compact radar-only view
 let weatherZip      = '';          // US ZIP for weather; blank = IP auto-detect
 let snoozeDurSec    = 300;         // tap-to-snooze duration pushed to the device
 let approachFilter  = false;       // only count approaching/stationary targets as threats
+let displayFont     = 0;           // round-display UI font index (SET FONT)
 let lastPort        = '';          // last successfully connected port (for auto-reconnect)
 let prefsPath       = null;        // set in loadPrefs()
 
@@ -80,6 +81,7 @@ function loadPrefs() {
       if (typeof data.snoozeDurSec === 'number')
         snoozeDurSec = Math.max(10, Math.min(3600, data.snoozeDurSec));
       if (typeof data.approachFilter === 'boolean') approachFilter = data.approachFilter;
+      if (typeof data.displayFont === 'number') displayFont = data.displayFont;
       if (typeof data.lastPort === 'string') lastPort = data.lastPort;
     }
   } catch (_) {}
@@ -90,7 +92,7 @@ function savePrefs() {
     if (!prefsPath) return;
     fs.writeFileSync(prefsPath, JSON.stringify(
       { alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold,
-        weatherZip, snoozeDurSec, approachFilter, lastPort }, null, 2
+        weatherZip, snoozeDurSec, approachFilter, displayFont, lastPort }, null, 2
     ), 'utf8');
   } catch (_) {}
 }
@@ -391,7 +393,7 @@ ipcMain.handle('get-start-on-login',   ()          => {
 });
 ipcMain.handle('get-prefs', () => ({
   alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold,
-  weatherZip, snoozeDurSec, approachFilter, lastPort,
+  weatherZip, snoozeDurSec, approachFilter, displayFont, lastPort,
 }));
 ipcMain.handle('set-mini-mode', (_, mini) => {
   miniMode = Boolean(mini);
@@ -581,6 +583,7 @@ function openPort(portPath) {
 
       // Push device config + clock, then keep the clock synced
       deviceWrite(`SET SNOOZEDUR ${snoozeDurSec}`);
+      deviceWrite(`SET FONT ${displayFont}`);
       sendTimeSync();
       if (timeSyncTimer) clearInterval(timeSyncTimer);
       timeSyncTimer = setInterval(sendTimeSync, 60000);
@@ -680,6 +683,13 @@ ipcMain.handle('set-snooze-dur', (_, sec) => {
 ipcMain.handle('set-approach-filter', (_, v) => {
   approachFilter = Boolean(v);
   savePrefs();
+});
+
+// ── IPC: Round-display font ───────────────────────────────────
+ipcMain.handle('set-display-font', (_, idx) => {
+  displayFont = Math.max(0, Math.min(4, Number(idx) || 0));
+  savePrefs();
+  deviceWrite(`SET FONT ${displayFont}`);
 });
 
 // ── IPC: Event history ────────────────────────────────────────
