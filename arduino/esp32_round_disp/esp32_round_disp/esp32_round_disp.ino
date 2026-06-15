@@ -73,14 +73,17 @@ uint16_t snoozeDurSec = 300;    // tap-to-snooze duration — app sets via SET S
 // header, mode label, clock AM/PM/date/status and weather temp.  The big
 // clock digits use their own CLOCK_FONT; tiny ring labels stay default.
 const lgfx::IFont* const UI_FONTS[] = {
-  &fonts::FreeSansBold12pt7b,   // 0 — clean bold (default)
+  &fonts::FreeSansBold12pt7b,   // 0 — clean bold
   &fonts::FreeSans12pt7b,       // 1 — clean sans
-  &fonts::Orbitron_Light_24,    // 2 — futuristic / techy
+  &fonts::Orbitron_Light_24,    // 2 — futuristic / techy (default)
   &fonts::FreeSerif12pt7b,      // 3 — elegant serif
   &fonts::DejaVu18,             // 4 — neutral, high legibility
 };
+// Per-font render scale (LovyanGFX supports fractional sizes).  Orbitron
+// only ships at 24/32px, so render it at 0.75× (~18px) to match the rest.
+const float UI_FONT_SCALE[] = { 1.0f, 1.0f, 0.75f, 1.0f, 1.0f };
 const uint8_t UI_FONT_COUNT = 5;
-uint8_t uiFontIdx = 0;
+uint8_t uiFontIdx = 2;          // default: Orbitron
 
 // ── Snooze state ─────────────────────────────────────────────
 // While snoozed the firmware keeps streaming STATUS (with a snooze=
@@ -785,11 +788,12 @@ void mmToPx(int16_t xMm, int16_t yMm, int16_t &px, int16_t &py) {
 // the default 6×8 font + datum so setCursor/print micro-labels still work.
 void uiText(LovyanGFX *g, const char *s, int x, int y, uint16_t col) {
   g->setFont(UI_FONTS[uiFontIdx]);
-  g->setTextSize(1);
+  g->setTextSize(UI_FONT_SCALE[uiFontIdx]);
   g->setTextColor(col);
   g->setTextDatum(textdatum_t::middle_center);
   g->drawString(s, x, y);
   g->setFont(&fonts::Font0);
+  g->setTextSize(1);
   g->setTextDatum(textdatum_t::top_left);
 }
 
@@ -797,7 +801,7 @@ void uiText(LovyanGFX *g, const char *s, int x, int y, uint16_t col) {
 // edge ending near `rightX`, vertical middle at `cy`.
 void uiWeatherTemp(LovyanGFX *g, int rightX, int cy) {
   g->setFont(UI_FONTS[uiFontIdx]);
-  g->setTextSize(1);
+  g->setTextSize(UI_FONT_SCALE[uiFontIdx]);
   g->setTextColor(C_TEXT);
   g->setTextDatum(textdatum_t::middle_left);
   char ub[2] = { weatherUnit, 0 };
@@ -808,6 +812,7 @@ void uiWeatherTemp(LovyanGFX *g, int rightX, int cy) {
   g->drawCircle(sx + numW + 4, cy - (g->fontHeight() / 3), 2, C_TEXT);
   g->drawString(ub, sx + numW + 8, cy);
   g->setFont(&fonts::Font0);
+  g->setTextSize(1);
   g->setTextDatum(textdatum_t::top_left);
 }
 
@@ -866,6 +871,14 @@ void drawRadar() {
     uint8_t num = (uint8_t)(bright * 6.0f);          // 6-step fade
     if (num < 1) continue;
     int16_t r = (int16_t)(phase * RADAR_R);
+    // Skip when the ripple lands on a permanent range arc — overdrawing
+    // the static ring is what makes it blink as the ripple passes through.
+    bool onArc = false;
+    for (int i = 1; i <= RADAR_ARCS; i++) {
+      int16_t pr = (int16_t)((uint32_t)RADAR_R * i / RADAR_ARCS);
+      if (abs(r - pr) < 5) { onArc = true; break; }
+    }
+    if (onArc) continue;
     g->drawCircle(RADAR_CX, RADAR_SY, r, dimColor(arcCol, num, 6));
   }
   // Re-clear below the sensor — ripple circles dip under it.

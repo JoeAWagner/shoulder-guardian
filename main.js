@@ -30,7 +30,7 @@ let miniMode        = false;       // compact radar-only view
 let weatherZip      = '';          // US ZIP for weather; blank = IP auto-detect
 let snoozeDurSec    = 300;         // tap-to-snooze duration pushed to the device
 let approachFilter  = false;       // only count approaching/stationary targets as threats
-let displayFont     = 0;           // round-display UI font index (SET FONT)
+let displayFont     = 2;           // round-display UI font index (SET FONT) — default Orbitron
 let lastPort        = '';          // last successfully connected port (for auto-reconnect)
 let prefsPath       = null;        // set in loadPrefs()
 
