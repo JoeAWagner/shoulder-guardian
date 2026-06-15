@@ -61,8 +61,14 @@ body {
   gap: 10px;
   padding: 12px 14px 14px;
   height: calc(100vh - 38px);
-  overflow: hidden;
+  /* Scroll when content (e.g. expanded Advanced settings) exceeds the
+     window, instead of clipping it and forcing a manual resize. */
+  overflow-y: auto;
+  overflow-x: hidden;
 }
+.app::-webkit-scrollbar       { width: 6px; }
+.app::-webkit-scrollbar-track { background: transparent; }
+.app::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
 /* ── Connection strip ────────────────────────────────────────── */
 .conn-strip {
@@ -312,7 +318,9 @@ input[type="range"] { width: 100%; accent-color: var(--blue); cursor: pointer; h
   background: var(--card); border: 1px solid var(--border);
   border-radius: 12px; padding: 10px 12px;
   display: flex; flex-direction: column; gap: 8px;
-  flex: 1; min-height: 0;
+  /* grow to fill spare space, but never shrink below 150px — when Advanced
+     is open the whole .app scrolls rather than crushing the log. */
+  flex: 1 0 150px;
 }
 .log-bar { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
 .log-bar-actions { display: flex; gap: 6px; }
