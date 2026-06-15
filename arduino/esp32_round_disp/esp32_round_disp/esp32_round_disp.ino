@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  Shoulder Guardian — ESP32 Round Disp (ESP32-2424S012C-I)
+//  Project Argus — ESP32 Round Disp (ESP32-2424S012C-I)
 //
 //  All-in-one round display module: ESP32-C3-MINI + 1.28" GC9A01
 //  240×240 IPS LCD on the same PCB (no breadboard SPI).
@@ -101,7 +101,8 @@ uint8_t trailN[3] = {0, 0, 0};        // valid entries per slot
 unsigned long threatSinceMs = 0;      // when activeCount first hit 2+ (0 = no threat)
 unsigned long hintUntilMs   = 0;      // show tap-zone hints until this time
 const unsigned long THREAT_PULSE_MS = 2000;  // pulse the red theme this long
-#define SWEEP_PERIOD_MS 4000          // one full left→right sweep
+#define RIPPLE_PERIOD_MS 2600         // one ping expanding from sensor to edge
+#define RIPPLE_COUNT      3           // staggered concurrent ripples
 
 // Scale an RGB565 colour by num/den — used for trail fade and pulse dim.
 uint16_t dimColor(uint16_t c, uint8_t num, uint8_t den) {
@@ -254,7 +255,7 @@ LGFX_Sprite fb(&tft);
 void setup() {
   Serial.begin(115200);
   delay(1500);
-  Serial.println("[SG] ESP32 Round Disp starting...");
+  Serial.println("[Argus] Project Argus (round display) starting...");
 
   pinMode(BL_PIN, OUTPUT);
   analogWrite(BL_PIN, 200); // ~80% brightness
@@ -798,21 +799,21 @@ void drawRadar() {
   g->fillRect(0, RADAR_SY + 1, SCREEN_W, SCREEN_H - RADAR_SY - 1, C_BG);
   g->drawFastVLine(RADAR_CX, 0, RADAR_SY, lineCol);
 
-  // Sweep line — rotates left→right across the half-disc, with two
-  // dimmer trailing lines for the classic radar look.
-  {
-    float phase = (float)(nowMs % SWEEP_PERIOD_MS) / SWEEP_PERIOD_MS;  // 0..1
-    for (int t = 2; t >= 0; t--) {
-      float p = phase - t * 0.02f;
-      if (p < 0) continue;
-      float a  = 3.14159f + p * 3.14159f;          // 180°..360°
-      int16_t ex = RADAR_CX + (int16_t)(cosf(a) * RADAR_R);
-      int16_t ey = RADAR_SY + (int16_t)(sinf(a) * RADAR_R);
-      ey = constrain(ey, (int16_t)0, (int16_t)RADAR_SY);
-      uint16_t col = (t == 0) ? dimColor(arcCol, 2, 3) : dimColor(arcCol, 1, 4 + t);
-      g->drawLine(RADAR_CX, RADAR_SY, ex, ey, col);
-    }
+  // Ripple — concentric half-circles expanding outward from the sensor
+  // like a sonar ping, fading as they grow.  Replaces the rotating sweep.
+  for (int rp = 0; rp < RIPPLE_COUNT; rp++) {
+    unsigned long t = (nowMs + (unsigned long)rp * RIPPLE_PERIOD_MS / RIPPLE_COUNT)
+                      % RIPPLE_PERIOD_MS;
+    float   phase = (float)t / RIPPLE_PERIOD_MS;     // 0..1 expand
+    int16_t r     = (int16_t)(phase * RADAR_R);
+    if (r < 6) continue;
+    // Brightness fades from full at the sensor to nothing at the edge.
+    uint8_t num = (uint8_t)max(1.0f, (1.0f - phase) * 5.0f);
+    uint16_t col = dimColor(arcCol, num, 5);
+    g->drawCircle(RADAR_CX, RADAR_SY, r, col);
   }
+  // Re-clear below the sensor — ripple circles dip under it.
+  g->fillRect(0, RADAR_SY + 1, SCREEN_W, SCREEN_H - RADAR_SY - 1, C_BG);
 
   // Distance labels along the centre line (in meters).  The outermost
   // arc is skipped — its label would collide with the header text.
@@ -907,6 +908,15 @@ void drawRadar() {
   if (fb.getBuffer()) fb.pushSprite(0, 0);
 }
 
+// Clock-face font — swap this for a different look. All are LovyanGFX
+// built-ins, sized larger than the old plain size-5 default:
+//   &fonts::Font7                 7-segment digital, 48px  (default)
+//   &fonts::Font8                 huge 7-segment, 75px (may be wide for HH:MM)
+//   &fonts::Font6                 rounded LCD numerals, 48px
+//   &fonts::Orbitron_Light_32     futuristic sci-fi, 32px
+//   &fonts::FreeSansBold24pt7b    clean modern sans
+#define CLOCK_FONT (&fonts::Font7)
+
 // ── Idle clock face ───────────────────────────────────────────
 // Shown after IDLE_CLOCK_MS with no targets (and once the app has
 // synced the time).  Any radar target or screen tap returns to radar
@@ -925,17 +935,23 @@ void drawClock() {
   bool stale = (millis() - clkSyncMs) > CLK_STALE_MS;
   uint16_t timeCol = stale ? dimColor(C_TEXT, 1, 3) : C_TEXT;
 
-  // Big HH:MM centred (size 5 = 30×40 px per char)
+  // Big HH:MM — large built-in font, auto-centred via datum so any
+  // font choice lands centred without manual pixel math.
   char buf[8];
   snprintf(buf, sizeof(buf), "%d:%02d", h12, m);
   g->setTextColor(timeCol);
-  g->setTextSize(5);
-  g->setCursor(RADAR_CX - (int)strlen(buf) * 15, 70);
-  g->print(buf);
+  g->setFont(CLOCK_FONT);
+  g->setTextSize(1);
+  g->setTextDatum(textdatum_t::middle_center);
+  g->drawString(buf, RADAR_CX, 84);
+  // Restore default font + datum for the rest of the face (the sections
+  // below use setCursor + setTextSize against the 6×8 default font).
+  g->setFont(&fonts::Font0);
+  g->setTextDatum(textdatum_t::top_left);
 
   // AM/PM below the time
   g->setTextSize(2);
-  g->setCursor(RADAR_CX - 12, 114);
+  g->setCursor(RADAR_CX - 12, 118);
   g->print(pm ? "PM" : "AM");
 
   // Date line — "Thu Jun 12" — when the app has sent date fields

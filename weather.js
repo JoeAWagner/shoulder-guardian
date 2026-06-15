@@ -15,7 +15,7 @@
 const REFRESH_MS = 15 * 60 * 1000;
 
 // NWS requires a User-Agent identifying the app + a contact.
-const NWS_UA = 'ShoulderGuardian/1.0 (github.com/JoeAWagner/shoulder-guardian)';
+const NWS_UA = 'ProjectArgus/1.0 (github.com/JoeAWagner/shoulder-guardian)';
 
 let timer        = null;
 let cachedLatLon = null;          // cached after first geo lookup

@@ -191,7 +191,7 @@ window.arduino.getPrefs().then(prefs => {
 
   // First run (no remembered port) — point the user at the connect flow.
   if (!prefs.lastPort) {
-    addLog('Welcome! Plug in your Shoulder Guardian, click ↻, choose its COM port, and hit Connect.', 'info');
+    addLog('Welcome! Plug in your Project Argus, click ↻, choose its COM port, and hit Connect.', 'info');
     addLog('After the first connect, the app reconnects automatically from then on.', 'info');
   }
 });

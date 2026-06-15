@@ -41,6 +41,27 @@ let threatFrames    = 0;      // consecutive frames with count >= 2
 let threatThreshold = 4;      // frames needed before triggering (user-configurable)
 let lastTargetCount = -1;     // tracks count changes for target appear/disappear logging
 
+// ── One-time settings migration (Shoulder Guardian → Project Argus) ─
+// Changing productName moves userData to %APPDATA%\Project Argus, which
+// would orphan the saved port, ZIP, snooze duration, and event history.
+// Copy them over once from the old folder if the new one is empty.
+function migrateUserData() {
+  try {
+    const cur = app.getPath('userData');                  // …\Project Argus
+    if (!fs.existsSync(cur)) fs.mkdirSync(cur, { recursive: true });
+    if (fs.existsSync(path.join(cur, 'prefs.json'))) return;  // already set up
+    const old = path.join(path.dirname(cur), 'Shoulder Guardian');
+    if (!fs.existsSync(old)) return;
+    const copy = (from, to) => {
+      const src = path.join(old, from);
+      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(cur, to));
+    };
+    copy('prefs.json',            'prefs.json');
+    copy('events.json',           'events.json');
+    copy('shoulder-guardian.log', 'project-argus.log');
+  } catch (_) {}
+}
+
 // ── Settings persistence ──────────────────────────────────────
 function loadPrefs() {
   try {
@@ -80,7 +101,7 @@ let logFilePath = null;
 function initLogger() {
   const dir = app.getPath('userData');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  logFilePath = path.join(dir, 'shoulder-guardian.log');
+  logFilePath = path.join(dir, 'project-argus.log');
   logToFile(`\n──────────────────────────────────────────`);
   logToFile(`[${ts()}] App started (v${app.getVersion()})`);
 }
@@ -267,7 +288,7 @@ function createWindow() {
 // ── Tray ─────────────────────────────────────────────────────
 function createTray() {
   tray = new Tray(makeTrayIcon('#6e7681'));
-  tray.setToolTip('Shoulder Guardian');
+  tray.setToolTip('Project Argus');
   rebuildTrayMenu();
   tray.on('click',        () => toggleWindow());
   tray.on('double-click', () => toggleWindow());
@@ -327,7 +348,7 @@ function rebuildTrayMenu() {
 
 // ── App lifecycle ─────────────────────────────────────────────
 app.whenReady().then(() => {
-  loadPrefs(); initLogger(); initEvents(); createWindow(); createTray(); initUpdater();
+  migrateUserData(); loadPrefs(); initLogger(); initEvents(); createWindow(); createTray(); initUpdater();
 
   // Auto-connect to the last used port on startup (silent if it fails —
   // the user can still connect manually, and a later unexpected drop
@@ -499,10 +520,10 @@ function handleSerialLine(line) {
         logToFile(trigMsg);
         flashTrayRed();
         // Toast — explains the sudden desktop/lock so the user knows
-        // it was Shoulder Guardian and not a glitch.
+        // it was Project Argus and not a glitch.
         if (Notification.isSupported()) {
           new Notification({
-            title: 'Shoulder Guardian',
+            title: 'Project Argus',
             body: `${status.count} people detected — ${triggerAction === 'lock' ? 'screen locked' : 'desktop hidden'}`,
             silent: false,
           }).show();

@@ -1,7 +1,7 @@
 {
   "name": "shoulder-guardian",
-  "version": "1.5.4",
-  "description": "Shoulder Guardian — mmWave presence detection for screen security",
+  "version": "1.6.0",
+  "description": "Project Argus — mmWave presence detection for screen security",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -25,8 +25,8 @@
   },
   "build": {
     "appId": "com.shoulderguardian.app",
-    "productName": "Shoulder Guardian",
-    "copyright": "Copyright © 2026",
+    "productName": "Project Argus",
+    "copyright": "Copyright © 2026 Wagner Cybersecurity LLC",
     "asar": true,
     "asarUnpack": [
       "node_modules/serialport/**",
@@ -70,7 +70,7 @@
       ]
     },
     "dmg": {
-      "title": "Shoulder Guardian",
+      "title": "Project Argus",
       "icon": "build/icon.png",
       "contents": [
         {
@@ -113,11 +113,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Shoulder Guardian",
-      "artifactName": "Shoulder-Guardian-Setup-${version}.${ext}"
+      "shortcutName": "Project Argus",
+      "artifactName": "Project-Argus-Setup-${version}.${ext}"
     },
     "portable": {
-      "artifactName": "Shoulder-Guardian-${version}.${ext}"
+      "artifactName": "Project-Argus-${version}.${ext}"
     }
   }
 }
