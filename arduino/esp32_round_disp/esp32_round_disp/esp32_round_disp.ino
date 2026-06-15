@@ -58,6 +58,7 @@ const int ADDR_ENABLED   = 7;
 const int ADDR_MAXX      = 8;
 const int ADDR_SNOOZEDUR = 10;  // uint16 — snooze duration (seconds)
 const int ADDR_FONT      = 12;  // uint8  — UI font index (app sets via SET FONT)
+const int ADDR_FONTSCALE = 13;  // uint8  — UI font size percent (SET FONTSCALE)
 
 // ── Settings ─────────────────────────────────────────────────
 uint16_t cooldownSec  = 5;
@@ -79,11 +80,17 @@ const lgfx::IFont* const UI_FONTS[] = {
   &fonts::FreeSerif12pt7b,      // 3 — elegant serif
   &fonts::DejaVu18,             // 4 — neutral, high legibility
 };
-// Per-font render scale (LovyanGFX supports fractional sizes).  Orbitron
-// only ships at 24/32px, so render it at 0.75× (~18px) to match the rest.
-const float UI_FONT_SCALE[] = { 1.0f, 1.0f, 0.75f, 1.0f, 1.0f };
+// Per-font base render scale (LovyanGFX supports fractional sizes).
+// Orbitron only ships at 24/32px, so render it at ~0.875× (~21px) — split
+// between its native 24px and the others' ~17px.
+const float UI_FONT_SCALE[] = { 1.0f, 1.0f, 0.875f, 1.0f, 1.0f };
 const uint8_t UI_FONT_COUNT = 5;
 uint8_t uiFontIdx = 2;          // default: Orbitron
+
+// User-facing size multiplier on top of the per-font base (SET FONTSCALE,
+// percent).  Effective size = UI_FONT_SCALE[font] * fontScalePct/100.
+uint8_t fontScalePct = 100;
+static inline float uiScale() { return UI_FONT_SCALE[uiFontIdx] * (fontScalePct / 100.0f); }
 
 // ── Snooze state ─────────────────────────────────────────────
 // While snoozed the firmware keeps streaming STATUS (with a snooze=
@@ -593,6 +600,13 @@ void processCommand(const char* cmd) {
       EEPROM.put(ADDR_FONT, uiFontIdx); EEPROM.commit();
       Serial.println("OK:FONT=" + String(v));
     }
+  } else if (strncmp(cmd, "SET FONTSCALE ", 14) == 0) {
+    int v = atoi(cmd + 14);
+    if (v >= 50 && v <= 200) {
+      fontScalePct = (uint8_t)v;
+      EEPROM.put(ADDR_FONTSCALE, fontScalePct); EEPROM.commit();
+      Serial.println("OK:FONTSCALE=" + String(v));
+    }
   } else if (strcmp(cmd, "SNOOZE") == 0) {
     snoozeUntil = millis() + (unsigned long)snoozeDurSec * 1000UL;
     Serial.println("OK:SNOOZE=" + String(snoozeDurSec));
@@ -706,6 +720,7 @@ void loadSettings() {
   EEPROM.get(ADDR_ENABLED,  u8);  if (u8  != 0xFF) enabled     = (bool)u8;
   EEPROM.get(ADDR_SNOOZEDUR,u16); if (u16 != 0xFFFF && u16 >= 10 && u16 <= 3600) snoozeDurSec = u16;
   EEPROM.get(ADDR_FONT,     u8);  if (u8  != 0xFF && u8 < UI_FONT_COUNT) uiFontIdx = u8;
+  EEPROM.get(ADDR_FONTSCALE,u8);  if (u8  != 0xFF && u8 >= 50 && u8 <= 200) fontScalePct = u8;
 }
 
 // ── Weather icon drawing — simple 24×24 vector icons ─────────
@@ -788,7 +803,7 @@ void mmToPx(int16_t xMm, int16_t yMm, int16_t &px, int16_t &py) {
 // the default 6×8 font + datum so setCursor/print micro-labels still work.
 void uiText(LovyanGFX *g, const char *s, int x, int y, uint16_t col) {
   g->setFont(UI_FONTS[uiFontIdx]);
-  g->setTextSize(UI_FONT_SCALE[uiFontIdx]);
+  g->setTextSize(uiScale());
   g->setTextColor(col);
   g->setTextDatum(textdatum_t::middle_center);
   g->drawString(s, x, y);
@@ -801,7 +816,7 @@ void uiText(LovyanGFX *g, const char *s, int x, int y, uint16_t col) {
 // edge ending near `rightX`, vertical middle at `cy`.
 void uiWeatherTemp(LovyanGFX *g, int rightX, int cy) {
   g->setFont(UI_FONTS[uiFontIdx]);
-  g->setTextSize(UI_FONT_SCALE[uiFontIdx]);
+  g->setTextSize(uiScale());
   g->setTextColor(C_TEXT);
   g->setTextDatum(textdatum_t::middle_left);
   char ub[2] = { weatherUnit, 0 };

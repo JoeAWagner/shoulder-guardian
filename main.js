@@ -31,6 +31,7 @@ let weatherZip      = '';          // US ZIP for weather; blank = IP auto-detect
 let snoozeDurSec    = 300;         // tap-to-snooze duration pushed to the device
 let approachFilter  = false;       // only count approaching/stationary targets as threats
 let displayFont     = 2;           // round-display UI font index (SET FONT) — default Orbitron
+let fontScale       = 100;         // round-display font size percent (SET FONTSCALE)
 let lastPort        = '';          // last successfully connected port (for auto-reconnect)
 let prefsPath       = null;        // set in loadPrefs()
 
@@ -82,6 +83,7 @@ function loadPrefs() {
         snoozeDurSec = Math.max(10, Math.min(3600, data.snoozeDurSec));
       if (typeof data.approachFilter === 'boolean') approachFilter = data.approachFilter;
       if (typeof data.displayFont === 'number') displayFont = data.displayFont;
+      if (typeof data.fontScale === 'number') fontScale = data.fontScale;
       if (typeof data.lastPort === 'string') lastPort = data.lastPort;
     }
   } catch (_) {}
@@ -92,7 +94,7 @@ function savePrefs() {
     if (!prefsPath) return;
     fs.writeFileSync(prefsPath, JSON.stringify(
       { alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold,
-        weatherZip, snoozeDurSec, approachFilter, displayFont, lastPort }, null, 2
+        weatherZip, snoozeDurSec, approachFilter, displayFont, fontScale, lastPort }, null, 2
     ), 'utf8');
   } catch (_) {}
 }
@@ -393,7 +395,7 @@ ipcMain.handle('get-start-on-login',   ()          => {
 });
 ipcMain.handle('get-prefs', () => ({
   alwaysOnTop, closeToTray, miniMode, triggerAction, threatThreshold,
-  weatherZip, snoozeDurSec, approachFilter, displayFont, lastPort,
+  weatherZip, snoozeDurSec, approachFilter, displayFont, fontScale, lastPort,
 }));
 ipcMain.handle('set-mini-mode', (_, mini) => {
   miniMode = Boolean(mini);
@@ -584,6 +586,7 @@ function openPort(portPath) {
       // Push device config + clock, then keep the clock synced
       deviceWrite(`SET SNOOZEDUR ${snoozeDurSec}`);
       deviceWrite(`SET FONT ${displayFont}`);
+      deviceWrite(`SET FONTSCALE ${fontScale}`);
       sendTimeSync();
       if (timeSyncTimer) clearInterval(timeSyncTimer);
       timeSyncTimer = setInterval(sendTimeSync, 60000);
@@ -690,6 +693,13 @@ ipcMain.handle('set-display-font', (_, idx) => {
   displayFont = Math.max(0, Math.min(4, Number(idx) || 0));
   savePrefs();
   deviceWrite(`SET FONT ${displayFont}`);
+});
+
+// ── IPC: Round-display font size ──────────────────────────────
+ipcMain.handle('set-font-scale', (_, pct) => {
+  fontScale = Math.max(50, Math.min(200, Number(pct) || 100));
+  savePrefs();
+  deviceWrite(`SET FONTSCALE ${fontScale}`);
 });
 
 // ── IPC: Event history ────────────────────────────────────────

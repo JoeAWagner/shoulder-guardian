@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('arduino', {
   setSnoozeDur:      (sec) => ipcRenderer.invoke('set-snooze-dur', sec),
   setApproachFilter: (v)   => ipcRenderer.invoke('set-approach-filter', v),
   setDisplayFont:    (idx) => ipcRenderer.invoke('set-display-font', idx),
+  setFontScale:      (pct) => ipcRenderer.invoke('set-font-scale', pct),
 
   // Event history
   getEvents:   () => ipcRenderer.invoke('get-events'),
