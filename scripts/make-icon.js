@@ -41,15 +41,15 @@ function mix(r, g, b, col, a) {
   return [r + (col[0]-r)*a, g + (col[1]-g)*a, b + (col[2]-b)*a];
 }
 
-// Emblem geometry
-const RING_OUT = R * 0.82;   // outer radar ring (brighter)
-const RING_MID = R * 0.64;   // mid radar ring (dim)
-const EYE_RX   = R * 0.49;   // eye half-width
-const EYE_RY   = R * 0.29;   // eye half-height
-const EYE_W    = R * 0.022;  // eye outline thickness
-const IRIS_R   = R * 0.20;
-const PUPIL_R  = R * 0.10;
-const GLINT_R  = R * 0.045;
+// Emblem geometry — big bold eye, one accent ring, edge rim.
+// Kept simple so it reads cleanly at taskbar/tray sizes.
+const RING_OUT = R * 0.88;   // single radar accent ring near the edge
+const EYE_RX   = R * 0.64;   // eye half-width  (large, dominant)
+const EYE_RY   = R * 0.40;   // eye half-height
+const EYE_W    = R * 0.045;  // eye outline thickness (bold)
+const IRIS_R   = R * 0.27;
+const PUPIL_R  = R * 0.135;
+const GLINT_R  = R * 0.06;
 
 for (let y = 0; y < SIZE; y++) {
   for (let x = 0; x < SIZE; x++) {
@@ -60,29 +60,12 @@ for (let y = 0; y < SIZE; y++) {
 
     let [r, g, b] = BG;
 
-    // ── Radar rings ───────────────────────────────────────────
-    const ringCov = (rr, half) => cl(half + 0.6 - Math.abs(d - rr));
-    [[RING_OUT, R*0.012, 0.85], [RING_MID, R*0.009, 0.6]].forEach(([rr, half, str]) => {
-      const c = ringCov(rr, half) * str;
-      if (c > 0) [r,g,b] = mix(r,g,b, CYAN_DIM, c);
-    });
-
-    // ── Compass ticks at N / E / S / W (just outside outer ring) ─
-    for (let a = 0; a < 360; a += 90) {
-      const rad = a * Math.PI / 180;
-      const ux = Math.cos(rad), uy = Math.sin(rad);
-      const x1 = CX + ux * (RING_OUT + R*0.02), y1 = CY + uy * (RING_OUT + R*0.02);
-      const x2 = CX + ux * (RING_OUT + R*0.08), y2 = CY + uy * (RING_OUT + R*0.08);
-      const tx = x2 - x1, ty = y2 - y1, len = Math.hypot(tx, ty);
-      const t  = cl(((x-x1)*tx + (y-y1)*ty) / (len*len));
-      const px = x1 + t*tx, py = y1 + t*ty;
-      const ld = Math.hypot(x - px, y - py);
-      const c  = cl(R*0.013 - ld) * 0.85;
-      if (c > 0) [r,g,b] = mix(r,g,b, CYAN_DIM, c);
-    }
+    // ── Single radar accent ring ──────────────────────────────
+    const ringCov = cl(R*0.012 + 0.6 - Math.abs(d - RING_OUT)) * 0.7;
+    if (ringCov > 0) [r,g,b] = mix(r,g,b, CYAN_DIM, ringCov);
 
     // ── Eye outline (almond) ──────────────────────────────────
-    const e   = Math.hypot((x - CX) / EYE_RX, (y - CY) / EYE_RY);
+    const e     = Math.hypot((x - CX) / EYE_RX, (y - CY) / EYE_RY);
     const eMean = (EYE_RX + EYE_RY) / 2;
     const eDist = Math.abs(e - 1) * eMean;          // ~px distance to curve
     const eCov  = cl(EYE_W + 0.6 - eDist);
@@ -94,13 +77,13 @@ for (let y = 0; y < SIZE; y++) {
     if (irisCov > 0) [r,g,b] = mix(r,g,b, CYAN, irisCov);
     const pupilCov = cl(PUPIL_R + 0.5 - ir);
     if (pupilCov > 0) [r,g,b] = mix(r,g,b, PUPIL, pupilCov);
-    const gd = Math.hypot(x - (CX - R*0.06), y - (CY - R*0.08));
+    const gd = Math.hypot(x - (CX - R*0.08), y - (CY - R*0.11));
     const glintCov = cl(GLINT_R + 0.5 - gd);
     if (glintCov > 0) [r,g,b] = mix(r,g,b, GLINT, glintCov);
 
     // ── Thin outer accent ring at the very edge ───────────────
-    const edge = cl(R*0.012 - Math.abs(d - (R - R*0.02)));
-    if (edge > 0) [r,g,b] = mix(r,g,b, CYAN_DIM, edge * 0.6);
+    const edge = cl(R*0.014 - Math.abs(d - (R - R*0.02)));
+    if (edge > 0) [r,g,b] = mix(r,g,b, CYAN_DIM, edge * 0.7);
 
     png.data[idx]   = Math.round(r);
     png.data[idx+1] = Math.round(g);
