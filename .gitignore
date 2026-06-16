@@ -28,3 +28,7 @@ desktop.ini
 
 # Environment
 .env
+
+# Patent / IP working docs — keep local, never publish
+docs/invention-disclosure.md
+docs/patent-prior-art-search.md

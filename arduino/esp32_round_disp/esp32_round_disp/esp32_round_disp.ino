@@ -294,7 +294,6 @@ void setup() {
   if (!fb.createSprite(SCREEN_W, SCREEN_H)) {
     Serial.println("[SG] sprite alloc failed — falling back to direct draw");
   }
-  drawRadar();
 
   // ── CST816S touch — manual init ────────────────────────────
   pinMode(TOUCH_RST, OUTPUT);
@@ -319,6 +318,18 @@ void setup() {
   EEPROM.begin(EEPROM_SIZE);
   memset(targets, 0, sizeof(targets));
   loadSettings();
+  // ── Boot splash — Argus radar-eye for ~5 s ───────────────────
+  // Runs after init so the device is live the moment it clears.  Any
+  // serial commands that arrive during the splash buffer in the USB CDC
+  // RX FIFO and are processed once loop() starts.
+  {
+    unsigned long t0 = millis();
+    while (millis() - t0 < 5000) {
+      drawSplash((millis() - t0) / 5000.0f);
+      delay(33);   // ~30 fps
+    }
+  }
+
   lastPresenceMs = millis();   // treat boot as activity — full brightness, radar view
   hintUntilMs    = millis() + 4000;  // show tap-zone hints briefly on boot
 
@@ -986,6 +997,73 @@ void drawRadar() {
 //   &fonts::Orbitron_Light_32     futuristic sci-fi, 32px
 //   &fonts::FreeSansBold24pt7b    clean modern sans
 #define CLOCK_FONT (&fonts::Font7)
+
+// ── Boot splash — Argus "radar eye" emblem ───────────────────
+// All vector primitives; cyan armed-theme.  `progress` 0..1 fills the
+// bottom bar over the splash duration.  Animated via millis() so the
+// ripple/dots move while it's shown.
+void drawSplash(float progress) {
+  LovyanGFX *g = fb.getBuffer() ? (LovyanGFX *)&fb : (LovyanGFX *)&tft;
+  g->fillScreen(C_BG);
+  const int cx = 120, cy = 86;
+  unsigned long now = millis();
+
+  // Sonar ripple pulsing outward from the eye
+  for (int rp = 0; rp < 2; rp++) {
+    float ph = fmodf(now / 1400.0f + rp * 0.5f, 1.0f);
+    int   r  = 18 + (int)(ph * 30);
+    uint8_t num = (uint8_t)max(1.0f, (1.0f - ph) * 5.0f);
+    g->drawCircle(cx, cy, r, dimColor(C_BLUE_ARC, num, 5));
+  }
+
+  // Concentric radar rings
+  g->drawCircle(cx, cy, 46, dimColor(C_BLUE_ARC, 3, 5));
+  g->drawCircle(cx, cy, 38, dimColor(C_BLUE_ARC, 2, 5));
+
+  // Radar tick marks at N / E / S / W
+  for (int a = 0; a < 360; a += 90) {
+    float rad = a * 3.14159f / 180.0f;
+    g->drawLine(cx + cosf(rad) * 48, cy + sinf(rad) * 48,
+                cx + cosf(rad) * 55, cy + sinf(rad) * 55,
+                dimColor(C_BLUE_ARC, 3, 5));
+  }
+
+  // The eye — almond outline, iris, pupil, glint
+  g->drawEllipse(cx, cy, 30, 18, C_BLUE_SENSOR);
+  g->drawEllipse(cx, cy, 29, 17, C_BLUE_SENSOR);
+  g->fillCircle(cx, cy, 12, C_BLUE_SENSOR);   // iris
+  g->fillCircle(cx, cy, 6,  C_BG);            // pupil
+  g->fillCircle(cx - 3, cy - 4, 2, C_TEXT);   // glint
+
+  // Wordmark — Orbitron for brand identity (independent of UI font)
+  g->setFont(&fonts::Orbitron_Light_24);
+  g->setTextSize(0.6f);
+  g->setTextColor(C_TEXT);
+  g->setTextDatum(textdatum_t::middle_center);
+  g->drawString("PROJECT ARGUS", cx, 150);
+
+  // "booting" with animated dots
+  int nd = (now / 400) % 4;
+  char bt[16] = "booting";
+  for (int i = 0; i < nd; i++) strcat(bt, ".");
+  g->setFont(&fonts::FreeSans9pt7b);
+  g->setTextSize(1);
+  g->setTextColor(dimColor(C_TEXT, 2, 3));
+  g->drawString(bt, cx, 176);
+
+  // Progress bar
+  const int bw = 130, bx = cx - bw / 2, by = 204;
+  g->drawRoundRect(bx, by, bw, 6, 3, dimColor(C_TEXT, 1, 3));
+  int fillW = (int)(bw * (progress < 0 ? 0 : progress > 1 ? 1 : progress));
+  if (fillW > 0) g->fillRoundRect(bx, by, fillW, 6, 3, C_BLUE_SENSOR);
+
+  // Restore defaults for the rest of the UI
+  g->setFont(&fonts::Font0);
+  g->setTextSize(1);
+  g->setTextDatum(textdatum_t::top_left);
+
+  if (fb.getBuffer()) fb.pushSprite(0, 0);
+}
 
 // ── Idle clock face ───────────────────────────────────────────
 // Shown after IDLE_CLOCK_MS with no targets (and once the app has

@@ -217,19 +217,24 @@ function initUpdater() {
   }), 30000);
 }
 
-// ── Tray icon (programmatic BGRA circle) ─────────────────────
-function makeCircleBuf(hex, size) {
+// ── Tray icon — programmatic BGRA "Argus eye" (ring + iris) ───
+// Mirrors the app/display emblem; the colour still encodes state
+// (blue connected, grey disconnected, red flash on trigger).
+function makeEyeBuf(hex, size) {
   const buf = Buffer.alloc(size * size * 4, 0);
   const rr = parseInt(hex.slice(1,3), 16);
   const gg = parseInt(hex.slice(3,5), 16);
   const bb = parseInt(hex.slice(5,7), 16);
-  const cx = (size-1)/2, cy = (size-1)/2, rad = size/2 - 1.5;
+  const c = (size - 1) / 2;
+  const ringR = size * 0.40, halfW = Math.max(0.8, size * 0.075), dotR = size * 0.15;
+  const cl = v => v < 0 ? 0 : v > 1 ? 1 : v;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      if (Math.sqrt((x-cx)**2 + (y-cy)**2) <= rad) {
-        const i = (y*size+x)*4;
-        buf[i]=bb; buf[i+1]=gg; buf[i+2]=rr; buf[i+3]=255;
-      }
+      const d   = Math.hypot(x - c, y - c);
+      const ring = cl(halfW + 0.5 - Math.abs(d - ringR));   // eye outline
+      const dot  = cl(dotR  + 0.5 - d);                     // iris
+      const a    = Math.round(255 * Math.max(ring, dot));
+      if (a > 0) { const i = (y*size+x)*4; buf[i]=bb; buf[i+1]=gg; buf[i+2]=rr; buf[i+3]=a; }
     }
   }
   return buf;
@@ -237,8 +242,8 @@ function makeCircleBuf(hex, size) {
 
 function makeTrayIcon(hex = '#58a6ff') {
   const img = nativeImage.createEmpty();
-  img.addRepresentation({ width:16, height:16, scaleFactor:1.0, buffer: makeCircleBuf(hex,16) });
-  img.addRepresentation({ width:32, height:32, scaleFactor:2.0, buffer: makeCircleBuf(hex,32) });
+  img.addRepresentation({ width:16, height:16, scaleFactor:1.0, buffer: makeEyeBuf(hex,16) });
+  img.addRepresentation({ width:32, height:32, scaleFactor:2.0, buffer: makeEyeBuf(hex,32) });
   return img;
 }
 

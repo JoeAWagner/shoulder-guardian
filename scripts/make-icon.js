@@ -3,7 +3,10 @@
  * Generates build/icon.png (512×512) for electron-builder.
  * electron-builder auto-converts it to .ico (Windows) and .icns (macOS).
  *
- * Style: dark radar screen with blue glowing sensor dot — matches the app UI.
+ * Style: the "Argus radar-eye" — concentric radar rings + compass ticks
+ * around a watchful eye (iris, pupil, glint), on the dark app background.
+ * Matches the round-display boot splash so the brand is consistent across
+ * device, app, installer, and tray.
  *
  * Run:  node scripts/make-icon.js
  * Deps: pngjs (devDependency)
@@ -20,132 +23,94 @@ const png  = new PNG({ width: SIZE, height: SIZE, filterType: -1 });
 
 const CX = SIZE / 2;
 const CY = SIZE / 2;
-const R  = SIZE / 2;          // outer radius of circular icon
+const R  = SIZE / 2;
 
-// ── Colour helpers ────────────────────────────────────────────
 function hex(h) {
-  return [
-    parseInt(h.slice(1,3),16),
-    parseInt(h.slice(3,5),16),
-    parseInt(h.slice(5,7),16),
-  ];
+  return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
 }
-const BG    = hex('#0d1117');  // app background
-const ARC   = hex('#21262d');  // subtle arc lines
-const BLUE  = hex('#58a6ff');  // sensor / accent
+const BG       = hex('#0d1117');  // app background
+const CYAN     = hex('#4dd0ff');  // eye / iris (bright)
+const CYAN_DIM = hex('#1c6e88');  // radar rings (dim)
+const GLINT    = hex('#eaf6ff');  // eye highlight
+const PUPIL    = hex('#05080c');  // pupil (near-black)
 
-// Sensor sits near bottom of the radar arc area
-const SENSOR_Y = CY + R * 0.30;
-const PLOT_R   = R  * 0.80;
+// clamp 0..1
+const cl = v => v < 0 ? 0 : v > 1 ? 1 : v;
+// blend col into [r,g,b] by coverage a
+function mix(r, g, b, col, a) {
+  return [r + (col[0]-r)*a, g + (col[1]-g)*a, b + (col[2]-b)*a];
+}
 
-// ── Draw ──────────────────────────────────────────────────────
+// Emblem geometry
+const RING_OUT = R * 0.82;   // outer radar ring (brighter)
+const RING_MID = R * 0.64;   // mid radar ring (dim)
+const EYE_RX   = R * 0.49;   // eye half-width
+const EYE_RY   = R * 0.29;   // eye half-height
+const EYE_W    = R * 0.022;  // eye outline thickness
+const IRIS_R   = R * 0.20;
+const PUPIL_R  = R * 0.10;
+const GLINT_R  = R * 0.045;
+
 for (let y = 0; y < SIZE; y++) {
   for (let x = 0; x < SIZE; x++) {
     const idx = (y * SIZE + x) * 4;
 
-    // Circular mask — transparent outside
     const d = Math.hypot(x - CX, y - CY);
-    if (d > R - 0.5) {
-      png.data[idx+3] = 0;
-      continue;
-    }
+    if (d > R - 0.5) { png.data[idx+3] = 0; continue; }   // transparent outside
 
     let [r, g, b] = BG;
-    let a = 255;
 
-    // ── Radar arcs (semi-circles centred on sensor) ───────────
-    const sd = Math.hypot(x - CX, y - SENSOR_Y);
-    const onTop = y < SENSOR_Y;             // only draw upper half
-
-    [0.30, 0.55, 0.80, 1.0].forEach(frac => {
-      const arcR   = PLOT_R * frac;
-      const thick  = frac === 1.0 ? 2.5 : 1.5;
-      const bright = frac === 1.0 ? 0.25 : 0.12;
-      if (onTop && Math.abs(sd - arcR) < thick) {
-        r = Math.round(r + (ARC[0] - r) * bright + (BLUE[0] - r) * bright * 0.4);
-        g = Math.round(g + (ARC[1] - g) * bright + (BLUE[1] - g) * bright * 0.4);
-        b = Math.round(b + (ARC[2] - b) * bright + (BLUE[2] - b) * bright * 0.4);
-      }
+    // ── Radar rings ───────────────────────────────────────────
+    const ringCov = (rr, half) => cl(half + 0.6 - Math.abs(d - rr));
+    [[RING_OUT, R*0.012, 0.85], [RING_MID, R*0.009, 0.6]].forEach(([rr, half, str]) => {
+      const c = ringCov(rr, half) * str;
+      if (c > 0) [r,g,b] = mix(r,g,b, CYAN_DIM, c);
     });
 
-    // ── Center vertical line ──────────────────────────────────
-    if (onTop && Math.abs(x - CX) < 1.2 && sd < PLOT_R) {
-      r = Math.round(r + (ARC[0] - r) * 0.20);
-      g = Math.round(g + (ARC[1] - g) * 0.20);
-      b = Math.round(b + (ARC[2] - b) * 0.20);
+    // ── Compass ticks at N / E / S / W (just outside outer ring) ─
+    for (let a = 0; a < 360; a += 90) {
+      const rad = a * Math.PI / 180;
+      const ux = Math.cos(rad), uy = Math.sin(rad);
+      const x1 = CX + ux * (RING_OUT + R*0.02), y1 = CY + uy * (RING_OUT + R*0.02);
+      const x2 = CX + ux * (RING_OUT + R*0.08), y2 = CY + uy * (RING_OUT + R*0.08);
+      const tx = x2 - x1, ty = y2 - y1, len = Math.hypot(tx, ty);
+      const t  = cl(((x-x1)*tx + (y-y1)*ty) / (len*len));
+      const px = x1 + t*tx, py = y1 + t*ty;
+      const ld = Math.hypot(x - px, y - py);
+      const c  = cl(R*0.013 - ld) * 0.85;
+      if (c > 0) [r,g,b] = mix(r,g,b, CYAN_DIM, c);
     }
 
-    // ── FOV lines (±60° from top) ─────────────────────────────
-    [Math.PI + Math.PI/3, 2*Math.PI - Math.PI/3].forEach(angle => {
-      const lx = CX + Math.cos(angle) * PLOT_R;
-      const ly = SENSOR_Y + Math.sin(angle) * PLOT_R;
-      // Distance from pixel to the line segment
-      const tx = lx - CX, ty = ly - SENSOR_Y;
-      const len = Math.hypot(tx, ty);
-      const t   = Math.max(0, Math.min(1, ((x-CX)*tx + (y-SENSOR_Y)*ty) / (len*len)));
-      const px  = CX + t*tx, py = SENSOR_Y + t*ty;
-      const ld  = Math.hypot(x - px, y - py);
-      if (ld < 1.5) {
-        r = Math.round(r + (ARC[0] - r) * 0.18);
-        g = Math.round(g + (ARC[1] - g) * 0.18);
-        b = Math.round(b + (ARC[2] - b) * 0.18);
-      }
-    });
+    // ── Eye outline (almond) ──────────────────────────────────
+    const e   = Math.hypot((x - CX) / EYE_RX, (y - CY) / EYE_RY);
+    const eMean = (EYE_RX + EYE_RY) / 2;
+    const eDist = Math.abs(e - 1) * eMean;          // ~px distance to curve
+    const eCov  = cl(EYE_W + 0.6 - eDist);
+    if (eCov > 0) [r,g,b] = mix(r,g,b, CYAN, eCov);
 
-    // ── Demo target dot (T1 — green) ─────────────────────────
-    const t1x = CX + 0.15 * PLOT_R, t1y = SENSOR_Y - 0.50 * PLOT_R;
-    const t1d  = Math.hypot(x - t1x, y - t1y);
-    const T1   = hex('#3fb950');
-    if (t1d < 22) {
-      // outer glow
-      const gf = Math.max(0, 1 - t1d/22);
-      r = Math.round(r + (T1[0] - r) * gf * 0.30);
-      g = Math.round(g + (T1[1] - g) * gf * 0.30);
-      b = Math.round(b + (T1[2] - b) * gf * 0.30);
-    }
-    if (t1d < 8) {
-      const df = Math.max(0, 1 - t1d/8);
-      r = Math.round(r + (T1[0] - r) * df);
-      g = Math.round(g + (T1[1] - g) * df);
-      b = Math.round(b + (T1[2] - b) * df);
-    }
+    // ── Iris / pupil / glint ──────────────────────────────────
+    const ir = Math.hypot(x - CX, y - CY);
+    const irisCov = cl(IRIS_R + 0.5 - ir);
+    if (irisCov > 0) [r,g,b] = mix(r,g,b, CYAN, irisCov);
+    const pupilCov = cl(PUPIL_R + 0.5 - ir);
+    if (pupilCov > 0) [r,g,b] = mix(r,g,b, PUPIL, pupilCov);
+    const gd = Math.hypot(x - (CX - R*0.06), y - (CY - R*0.08));
+    const glintCov = cl(GLINT_R + 0.5 - gd);
+    if (glintCov > 0) [r,g,b] = mix(r,g,b, GLINT, glintCov);
 
-    // ── Sensor dot (blue, centred, bottom of arcs) ────────────
-    const dotR = R * 0.07;
-    const sdd  = Math.hypot(x - CX, y - SENSOR_Y);
-    if (sdd < dotR * 3) {
-      // glow halo
-      const gf = Math.max(0, 1 - sdd / (dotR*3));
-      r = Math.round(r + (BLUE[0] - r) * gf * 0.35);
-      g = Math.round(g + (BLUE[1] - g) * gf * 0.35);
-      b = Math.round(b + (BLUE[2] - b) * gf * 0.35);
-    }
-    if (sdd < dotR) {
-      const df = Math.max(0, 1 - sdd/dotR);
-      r = Math.round(r + (BLUE[0] - r) * df);
-      g = Math.round(g + (BLUE[1] - g) * df);
-      b = Math.round(b + (BLUE[2] - b) * df);
-    }
+    // ── Thin outer accent ring at the very edge ───────────────
+    const edge = cl(R*0.012 - Math.abs(d - (R - R*0.02)));
+    if (edge > 0) [r,g,b] = mix(r,g,b, CYAN_DIM, edge * 0.6);
 
-    // ── Thin blue outer ring ──────────────────────────────────
-    if (Math.abs(d - R + 4) < 4) {
-      const rf = 1 - Math.abs(d - R + 4) / 4;
-      r = Math.round(r + (BLUE[0] - r) * rf * 0.5);
-      g = Math.round(g + (BLUE[1] - g) * rf * 0.5);
-      b = Math.round(b + (BLUE[2] - b) * rf * 0.5);
-    }
-
-    png.data[idx]   = r;
-    png.data[idx+1] = g;
-    png.data[idx+2] = b;
-    png.data[idx+3] = a;
+    png.data[idx]   = Math.round(r);
+    png.data[idx+1] = Math.round(g);
+    png.data[idx+2] = Math.round(b);
+    png.data[idx+3] = 255;
   }
 }
 
-// ── Write ─────────────────────────────────────────────────────
 const outDir  = path.join(__dirname, '..', 'build');
 const outPath = path.join(outDir, 'icon.png');
 if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-const buf = PNG.sync.write(png);
-fs.writeFileSync(outPath, buf);
+fs.writeFileSync(outPath, PNG.sync.write(png));
 console.log(`✓ Icon written → ${outPath}  (${SIZE}×${SIZE})`);
